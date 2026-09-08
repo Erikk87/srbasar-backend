@@ -118,6 +118,14 @@ function getLegacyDayRange(timestampValue) {
 function getSortOrder(sortBy, sortOrder, distanceExpression) {
   const order = [];
 
+  if (sortBy === DEFAULT_SORT_FIELD) {
+    // Default: gleicher Kalendertag, danach Halle als Gruppe, danach Uhrzeit.
+    order.push([literal("DATE(FROM_UNIXTIME(spieldatum / 1000))"), sortOrder]);
+    order.push(["spielfeldName", "ASC"]);
+    order.push([DEFAULT_SORT_FIELD, sortOrder]);
+    return order;
+  }
+
   if (sortBy === "distance" && distanceExpression) {
     order.push([literal(getDistanceNullsLastExpression()), "ASC"]);
     order.push([literal(distanceExpression), sortOrder]);

@@ -102,6 +102,18 @@ describe('SpieleController', () => {
     expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
+  test('groups the default order by calendar date, hall and kickoff time', async () => {
+    const response = createResponse();
+
+    await spieleController.getAllSpiele({ query: {} }, response);
+
+    const query = Spiel.findAndCountAll.mock.calls[0][0];
+    expect(query.order[0][0].val).toBe('DATE(FROM_UNIXTIME(spieldatum / 1000))');
+    expect(query.order[0][1]).toBe('ASC');
+    expect(query.order[1]).toEqual(['spielfeldName', 'ASC']);
+    expect(query.order[2]).toEqual(['spieldatum', 'ASC']);
+  });
+
   test('adds server-side distance filtering, distance data and nulls-last sorting', async () => {
     const response = createResponse();
 
