@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const { Spiel, Verein, SrQualifikation } = require("../models");
+const parseJsonValue = require("../utils/parseJsonValue");
 
 class SpieleController {
   async getAllSpiele(req, res) {
@@ -257,7 +258,7 @@ class SpieleController {
               timeZone: "Europe/Berlin",
             });
 
-          const rawData = JSON.parse(spielData.rawData)
+          const rawData = parseJsonValue(spielData.rawData)
           spielData.sr1 = rawData?.sr1 !== null 
           spielData.sr2 = rawData?.sr2 !== null 
           spielData.sr3 = rawData?.sr3 !== null
