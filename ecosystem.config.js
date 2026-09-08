@@ -1,12 +1,13 @@
 const path = require('path');
 
+const applicationRoot = process.env.SRBASAR_BACKEND_ROOT || path.resolve(__dirname, '../..');
 const currentDirectory = process.env.SRBASAR_BACKEND_CURRENT || __dirname;
 
 module.exports = {
   apps: [{
     name: 'srbasar-backend',
     cwd: currentDirectory,
-    script: path.join(currentDirectory, 'src/app.js'),
+    script: path.join(applicationRoot, 'src/app.js'),
     instances: 2,
     exec_mode: 'cluster',
     watch: false,

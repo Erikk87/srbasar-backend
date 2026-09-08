@@ -18,6 +18,7 @@ APP_ROOT="${SRBASAR_BACKEND_ROOT:-/var/www/clients/client2/web3/private}"
 CURRENT_LINK="$APP_ROOT/current"
 SHARED_DIR="$APP_ROOT/shared"
 RELEASES_DIR="$APP_ROOT/releases"
+STABLE_SCRIPT="$APP_ROOT/src/app.js"
 STAGING_DIR="$RELEASES_DIR/.staging"
 RELEASE_DIR="$RELEASES_DIR/$VERSION"
 
@@ -43,6 +44,17 @@ fi
 mkdir -p "$SHARED_DIR/logs" "$RELEASES_DIR" "$STAGING_DIR"
 
 previous_release="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+previous_script_target="$(readlink "$STABLE_SCRIPT" 2>/dev/null || true)"
+previous_script_backup=""
+if [[ -z "$previous_script_target" && -f "$STABLE_SCRIPT" ]]; then
+  previous_script_backup="$STABLE_SCRIPT.bootstrap"
+  if [[ ! -e "$previous_script_backup" && ! -L "$previous_script_backup" ]]; then
+    :
+  else
+    previous_script_backup="$STABLE_SCRIPT.bootstrap.$$"
+  fi
+  previous_script_target="$previous_script_backup"
+fi
 staging_release="$STAGING_DIR/$VERSION.$$"
 cleanup() {
   rm -rf -- "$staging_release"
@@ -60,12 +72,19 @@ npm_config_allow_remote=root npm ci --omit=dev --no-audit --no-fund
 node --check src/app.js
 popd >/dev/null
 
-rm -rf -- "$staging_release/node_modules"
 find "$staging_release" -type d -exec chmod 755 {} +
 find "$staging_release" -type f -exec chmod 644 {} +
 
 mv -- "$staging_release" "$RELEASE_DIR"
 trap - EXIT
+
+if [[ -n "$previous_script_backup" ]]; then
+  mv -- "$STABLE_SCRIPT" "$previous_script_backup"
+fi
+
+next_script="$STABLE_SCRIPT.next.$$"
+ln -s "$RELEASE_DIR/src/app.js" "$next_script"
+mv -Tf -- "$next_script" "$STABLE_SCRIPT"
 
 next_link="$CURRENT_LINK.next.$$"
 ln -s "$RELEASE_DIR" "$next_link"
@@ -79,7 +98,9 @@ if [[ ! "$port" =~ ^[0-9]+$ ]]; then
 fi
 
 reload_backend() {
-  SRBASAR_BACKEND_CURRENT="$CURRENT_LINK" pm2 startOrReload \
+  SRBASAR_BACKEND_ROOT="$APP_ROOT" \
+    SRBASAR_BACKEND_CURRENT="$CURRENT_LINK" \
+    pm2 startOrReload \
     "$CURRENT_LINK/ecosystem.config.js" \
     --only srbasar-backend \
     --update-env
@@ -101,6 +122,11 @@ rollback() {
     rollback_link="$CURRENT_LINK.rollback.$$"
     ln -s "$previous_release" "$rollback_link"
     mv -Tf -- "$rollback_link" "$CURRENT_LINK"
+    if [[ -n "$previous_script_target" ]]; then
+      rollback_script="$STABLE_SCRIPT.rollback.$$"
+      ln -s "$previous_script_target" "$rollback_script"
+      mv -Tf -- "$rollback_script" "$STABLE_SCRIPT"
+    fi
     reload_backend || true
     health_check || true
   fi
