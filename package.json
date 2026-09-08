@@ -1,6 +1,6 @@
 {
   "name": "srbasar-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Express.js Backend mit Sequelize und MariaDB",
   "main": "src/app.js",
   "scripts": {
@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "basketball-bund-sdk": "github:dirkdrutschmann/basketball-bund-sdk",
+    "basketball-bund-sdk": "git+https://github.com/dirkdrutschmann/basketball-bund-sdk.git",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

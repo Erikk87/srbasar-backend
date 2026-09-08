@@ -86,6 +86,31 @@ npm run pm2:logs    # PM2-Logs anzeigen
 npm run pm2:monit   # PM2-Monitoring
 ```
 
+## 🚢 Releases und Deployment
+
+Pushes auf `main` führen die Jest-Tests aus. Ein Release wird über einen SemVer-
+Tag ausgelöst, der exakt zur `version` in `package.json` passen muss:
+
+```bash
+npm version patch --no-git-tag-version
+git add package.json package-lock.json
+git commit -m "Release backend v1.0.1"
+git push origin main
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+Der Deployment-Workflow verwendet auf dem ISPConfig-Server die Struktur
+`/var/www/clients/client2/web3/private/{releases,shared,current}`. Die produktive
+`.env` liegt ausschließlich unter `private/shared/.env`; `current` wird nach
+erfolgreicher Installation atomar auf das neue Release gesetzt. PM2 lädt das
+Release anschließend per Graceful Reload. Der Healthcheck muss erfolgreich sein,
+sonst wird automatisch auf das vorherige Release zurückgeschaltet.
+
+Für das Repository werden die Actions-Secrets `DEPLOY_SSH_KEY` und
+`DEPLOY_KNOWN_HOSTS` benötigt. Der private Schlüssel wird nicht im Repository
+gespeichert.
+
 ## 🗄️ Datenbank
 
 Das System verwendet SQLite als Datenbank mit Sequelize als ORM.

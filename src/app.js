@@ -96,6 +96,7 @@ app.use((err, req, res, next) => {
 });
 
 let server;
+let isShuttingDown = false;
 
 const startServer = async () => {
   try {
@@ -108,10 +109,19 @@ const startServer = async () => {
       console.log(`Server läuft auf Port ${PORT}`);
       console.log(`PM2 Instance ID: ${process.env.NODE_APP_INSTANCE || 'N/A'}`);
       console.log(`Erlaubte Origins: ${allowedOrigins.join(', ')}`);
-      
-      // Starte alle TeamSL Cron-Jobs
-      cronService.startTeamSLCronJobs();
+
+      if (typeof process.send === 'function') {
+        process.send('ready');
+      }
+
+      // Cron-Jobs nur einmal im PM2-Cluster starten.
+      if (!process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0') {
+        cronService.startTeamSLCronJobs();
+      }
     });
+
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 66000;
   } catch (error) {
     console.error('Fehler beim Starten des Servers:', error);
     process.exit(1);
@@ -119,14 +129,20 @@ const startServer = async () => {
 };
 
 const gracefulShutdown = async (signal) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   console.log(`\n${signal} Signal empfangen. Starte Graceful Shutdown...`);
   
   // Stoppe alle Cron-Jobs
   cronService.stopTeamSLCronJobs();
   
   if (server) {
-    server.close(() => {
-      console.log('HTTP Server geschlossen');
+    await new Promise((resolve) => {
+      server.close(() => {
+        console.log('HTTP Server geschlossen');
+        resolve();
+      });
     });
   }
   
