@@ -275,13 +275,21 @@ class SpieleController {
         whereClause.sr2OffenAngeboten = true;
       }
 
+      const lseWhere = cloneWhereClause(whereClause);
+      delete lseWhere.srLizenz;
+      lseWhere.srLizenz = "LSE";
+
       const allSpiele = await Spiel.findAll({
         attributes: getFilterAttributes()
       });
-      const atRiskCount = await Spiel.count({ where: riskWhere });
+      const [atRiskCount, lseCount] = await Promise.all([
+        Spiel.count({ where: riskWhere }),
+        Spiel.count({ where: lseWhere })
+      ]);
       const availableFilters = {
         ...getAvailableFilters(allSpiele),
-        atRiskCount: Number(atRiskCount) || 0
+        atRiskCount: Number(atRiskCount) || 0,
+        lseCount: Number(lseCount) || 0
       };
       const distanceAttributes = distanceExpression
         ? { include: [[literal(distanceExpression), "distanceKm"]] }

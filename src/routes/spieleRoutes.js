@@ -73,6 +73,11 @@ const router = express.Router();
  *           type: string
  *         description: Benötigte SR-Lizenz (Teilstring-Suche)
  *       - in: query
+ *         name: srLizenzen
+ *         schema:
+ *           type: string
+ *         description: Mehrere exakte SR-Lizenzen, kommasepariert
+ *       - in: query
  *         name: latitude
  *         schema:
  *           type: number

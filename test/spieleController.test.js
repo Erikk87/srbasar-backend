@@ -216,6 +216,20 @@ describe('SpieleController', () => {
     expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(2);
   });
 
+  test('reports exact LSE availability in the current non-license filter context', async () => {
+    Spiel.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+    const response = createResponse();
+
+    await spieleController.getAllSpiele({ query: {
+      dateFrom: '2026-09-12', dateTo: '2026-09-13', ligaName: 'Oberliga', srLizenz: 'LSD'
+    } }, response);
+
+    const lseQuery = Spiel.count.mock.calls[1][0].where;
+    expect(lseQuery.srLizenz).toBe('LSE');
+    expect(lseQuery.ligaName[Op.like]).toBe('%Oberliga%');
+    expect(response.json.mock.calls[0][0].data.availableFilters.lseCount).toBe(3);
+  });
+
   test('preserves SR clubs and distinguishes assigned, unassigned and missing source data', async () => {
     Spiel.findAndCountAll.mockResolvedValue({ count: 1, rows: [createGame({
       sr1VereinName: 'DBV Charlottenburg', sr2VereinName: 'TuS Lichterfelde',
