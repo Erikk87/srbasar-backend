@@ -94,10 +94,10 @@ Tag ausgelöst, der exakt zur `version` in `package.json` passen muss:
 ```bash
 npm version patch --no-git-tag-version
 git add package.json package-lock.json
-git commit -m "Release backend v1.0.7"
+git commit -m "Release backend v1.0.8"
 git push origin main
-git tag v1.0.7
-git push origin v1.0.7
+git tag v1.0.8
+git push origin v1.0.8
 ```
 
 Der Deployment-Workflow verwendet auf dem ISPConfig-Server die Struktur

@@ -191,9 +191,28 @@ class CronService {
   }
 
   stopTeamSLCronJobs() {
-    if (this.teamSLCronJob) {
-      this.isRunning = false;
-      console.log('TeamSL Cron-Job gestoppt');
+    let stoppedJobs = 0;
+
+    Object.entries(this.teamSLCronJobs).forEach(([jobName, job]) => {
+      if (!job) return;
+
+      job.stop();
+      if (typeof job.destroy === 'function') {
+        job.destroy();
+      }
+      this.teamSLCronJobs[jobName] = null;
+      stoppedJobs++;
+    });
+
+    this.isRunning = {
+      w1: false,
+      w3: false,
+      all: false
+    };
+    this.globalRunning = false;
+
+    if (stoppedJobs > 0) {
+      console.log(`${stoppedJobs} TeamSL Cron-Jobs gestoppt`);
     }
   }
 

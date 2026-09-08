@@ -2,16 +2,109 @@ const axios = require("axios");
 const { Spiel, Verein, SrQualifikation } = require("../models");
 const { Op } = require("sequelize");
 const { fieldFn } = require("../utils/licenseUtils");
-const path = require('path');
 
 // Konfigurierbare Verbands-ID (Fallback auf Standardwert 3)
 const VERBAND_ID = parseInt(process.env.TEAM_SL_VERBAND_ID || "3", 10);
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const DEFAULT_DETAIL_CONCURRENCY = 8;
+const DEFAULT_DETAIL_PAUSE_MS = 250;
+const EMPTY_SNAPSHOT_CONFIRMATIONS = 2;
+
+const parsePositiveInteger = (value, fallback) => {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : fallback;
+};
+
+const parseNonNegativeInteger = (value, fallback) => {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isInteger(parsedValue) && parsedValue >= 0
+    ? parsedValue
+    : fallback;
+};
 
 class TeamSLService {
   constructor() {
     this.baseURL = "https://www.basketball-bund.net";
     this.sessionCookie = null;
     this.client = null;
+    this.publicClient = axios.create({
+      baseURL: `${this.baseURL}/rest`,
+      timeout: parsePositiveInteger(
+        process.env.TEAM_SL_PUBLIC_TIMEOUT_MS,
+        DEFAULT_REQUEST_TIMEOUT_MS
+      ),
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+    });
+    this.detailConcurrency = parsePositiveInteger(
+      process.env.TEAM_SL_DETAIL_CONCURRENCY,
+      DEFAULT_DETAIL_CONCURRENCY
+    );
+    this.detailPauseMs = parseNonNegativeInteger(
+      process.env.TEAM_SL_DETAIL_PAUSE_MS,
+      DEFAULT_DETAIL_PAUSE_MS
+    );
+    this.syncRetryAttempts = parsePositiveInteger(
+      process.env.TEAM_SL_SYNC_RETRY_ATTEMPTS,
+      3
+    );
+    this.syncRetryDelayMs = parseNonNegativeInteger(
+      process.env.TEAM_SL_SYNC_RETRY_DELAY_MS,
+      3000
+    );
+    this.consecutiveEmptyAllSnapshots = 0;
+  }
+
+  extractApiData(responseData) {
+    if (
+      responseData &&
+      typeof responseData === "object" &&
+      Object.prototype.hasOwnProperty.call(responseData, "data")
+    ) {
+      return responseData.data;
+    }
+
+    return responseData;
+  }
+
+  async requestPublicApi({ method, url, data, params }) {
+    const response = await this.publicClient.request({
+      method,
+      url,
+      data,
+      params,
+    });
+    const responseData = this.extractApiData(response.data);
+
+    if (!responseData || typeof responseData !== "object") {
+      throw new Error(`Ungültige Antwort von BBN für ${method} ${url}`);
+    }
+
+    return responseData;
+  }
+
+  getTeamSLCredentials() {
+    const username = process.env.TEAM_SL_USERNAME;
+    const password = process.env.TEAM_SL_PASSWORD;
+
+    if (!username || !password) {
+      throw new Error(
+        "TEAM_SL_USERNAME und TEAM_SL_PASSWORD müssen in den Umgebungsvariablen gesetzt sein"
+      );
+    }
+
+    return { username, password };
+  }
+
+  async ensureAuthenticated() {
+    if (this.client) return;
+
+    const { username, password } = this.getTeamSLCredentials();
+    await this.login(username, password);
   }
 
   async login(username, password) {
@@ -26,6 +119,7 @@ class TeamSLService {
       });
 
       if (
+        typeof res.data === "string" &&
         res.data.includes(
           "Die Kombination aus Benutzername und Passwort ist nicht bekannt!"
         )
@@ -42,6 +136,10 @@ class TeamSLService {
 
       this.client = axios.create({
         baseURL: this.baseURL,
+        timeout: parsePositiveInteger(
+          process.env.TEAM_SL_DETAIL_TIMEOUT_MS,
+          DEFAULT_REQUEST_TIMEOUT_MS
+        ),
         headers: {
           Cookie: this.sessionCookie,
           Accept: "application/json, text/plain, */*",
@@ -73,12 +171,13 @@ class TeamSLService {
   async verifyLogin() {
     try {
       const userCtx = await this.client.get("/rest/user/lc");
-      if (!userCtx.data || !userCtx.data.data || !userCtx.data.data.loginName) {
+      const userData = this.extractApiData(userCtx.data);
+      if (!userData || !userData.loginName) {
         throw new Error(
           "Login did not persist, /rest/user/lc has no loginName"
         );
       }
-      return userCtx.data;
+      return userData;
     } catch (error) {
       console.error("Login-Verifikation fehlgeschlagen:", error.message);
       throw error;
@@ -139,14 +238,19 @@ class TeamSLService {
     try {
       console.log("Starte neue Abfrage-Strategie mit matchId-basierter Methode...");
 
-      // 1. Alle Ligen abrufen (alte Methode)
+      // 1. Alle Ligen abrufen
       console.log("Lade alle Ligen...");
       const ligen = await this.fetchAllLigen();
       console.log(`${ligen.length} Ligen gefunden`);
 
+      if (ligen.length === 0) {
+        throw new Error("BBN hat keine Ligen geliefert");
+      }
+
       // 2. Alle Matches aus allen Ligen abrufen und nach zeitraum filtern
       console.log(`Lade alle Matches aus allen Ligen und filtere nach zeitraum: ${zeitraum}...`);
       const allMatches = [];
+      const failedLeagues = [];
       
       for (const liga of ligen) {
         try {
@@ -160,86 +264,134 @@ class TeamSLService {
           console.log(`  ${matches.length} Matches gefunden, ${filteredMatches.length} nach Zeitraum-Filter`);
         } catch (error) {
           console.error(`Fehler beim Laden der Matches für Liga ${liga.ligaId}:`, error.message);
+          failedLeagues.push({
+            ligaId: liga.ligaId,
+            ligaName: liga.liganame,
+            error: error.message,
+          });
         }
+      }
+
+      if (failedLeagues.length > 0) {
+        const failedLeagueNames = failedLeagues
+          .map((league) => `${league.ligaId} (${league.ligaName || "unbekannt"})`)
+          .join(", ");
+        throw new Error(
+          `Unvollständiger BBN-Abruf: ${failedLeagues.length}/${ligen.length} Ligen konnten nicht geladen werden (${failedLeagueNames})`
+        );
       }
 
       console.log(`Gesamt ${allMatches.length} Matches gefunden`);
 
-      // 3. Mit neuem TeamSL Service einloggen
-      console.log("Logge mit neuem TeamSL Service ein...");
-      const username = process.env.TEAM_SL_USERNAME;
-      const password = process.env.TEAM_SL_PASSWORD;
-
-      if (!username || !password) {
-        throw new Error("TEAM_SL_USERNAME und TEAM_SL_PASSWORD müssen in den Umgebungsvariablen gesetzt sein");
+      // Doppelte Match-IDs würden unnötige Requests erzeugen und die
+      // Vollständigkeitsprüfung verfälschen.
+      const uniqueMatchesById = new Map();
+      for (const match of allMatches) {
+        if (!match || match.matchId === undefined || match.matchId === null) {
+          throw new Error("BBN hat ein Match ohne matchId geliefert");
+        }
+        uniqueMatchesById.set(String(match.matchId), match);
       }
 
-      await this.login(username, password);
-      console.log("Erfolgreich mit neuem TeamSL Service eingeloggt");
+      const uniqueMatches = [...uniqueMatchesById.values()];
+      console.log(
+        `Gesamt ${uniqueMatches.length} eindeutige Matches nach Duplikatprüfung`
+      );
 
-      // 4. Für jede matchId detaillierte Daten abrufen (in Batches)
-      const BATCH_SIZE = 200; // Konfigurierbare Batch-Größe
-      const PAUSE_PER_REQUEST = 0; // Wartezeit pro Request in ms
-      console.log(`Lade detaillierte Daten für ${allMatches.length} Matches in Batches von ${BATCH_SIZE}...`);
+      // 3. Für jede matchId detaillierte Daten abrufen. Die Parallelität ist
+      // bewusst begrenzt, damit BBN nicht mit hunderten Requests gleichzeitig
+      // belastet wird und die Synchronisierung nicht unvollständig endet.
+      await this.ensureAuthenticated();
+      const batchSize = this.detailConcurrency;
+      console.log(
+        `Lade detaillierte Daten für ${uniqueMatches.length} Matches mit maximal ${batchSize} parallelen Requests...`
+      );
       const detailedGames = [];
-      const duplicateGames = new Map();
-
-      const batchSize = BATCH_SIZE;
-      const totalBatches = Math.ceil(allMatches.length / batchSize);
+      const detailFailures = [];
+      const totalBatches = Math.ceil(uniqueMatches.length / batchSize);
 
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
         const batchStart = batchIndex * batchSize;
-        const batchEnd = Math.min(batchStart + batchSize, allMatches.length);
-        const batch = allMatches.slice(batchStart, batchEnd);
+        const batchEnd = Math.min(batchStart + batchSize, uniqueMatches.length);
+        const batch = uniqueMatches.slice(batchStart, batchEnd);
 
-        console.log(`Verarbeite Batch ${batchIndex + 1}/${totalBatches}: Matches ${batchStart + 1}-${batchEnd}`);
+        console.log(
+          `Verarbeite Batch ${batchIndex + 1}/${totalBatches}: Matches ${batchStart + 1}-${batchEnd}`
+        );
 
-        // Batch parallel verarbeiten
         const batchPromises = batch.map(async (match, index) => {
           const globalIndex = batchStart + index;
           try {
-            console.log(`  Lade Details für Match ${globalIndex + 1}/${allMatches.length}: ${match.matchId}`);
+            console.log(
+              `  Lade Details für Match ${globalIndex + 1}/${uniqueMatches.length}: ${match.matchId}`
+            );
             
             const gameDetails = await this.fetchGameDetails(match.matchId);
-            if (gameDetails) {
-              // Konvertiere zu dem Format, das die alte API erwartet
-              const convertedGame = this.convertGameDetailsToApiFormat(gameDetails);
-              return { success: true, game: convertedGame, matchId: match.matchId };
+            if (!gameDetails) {
+              return {
+                success: false,
+                matchId: match.matchId,
+                error: "Keine Details erhalten",
+              };
             }
-            return { success: false, matchId: match.matchId, error: 'Keine Details erhalten' };
+
+            const convertedGame = this.convertGameDetailsToApiFormat(gameDetails);
+            if (!convertedGame) {
+              return {
+                success: false,
+                matchId: match.matchId,
+                error: "Details konnten nicht konvertiert werden",
+              };
+            }
+
+            return { success: true, game: convertedGame, matchId: match.matchId };
           } catch (error) {
-            console.error(`  Fehler beim Laden der Details für Match ${match.matchId}:`, error.message);
-            return { success: false, matchId: match.matchId, error: error.message };
+            console.error(
+              `  Fehler beim Laden der Details für Match ${match.matchId}:`,
+              error.message
+            );
+            return {
+              success: false,
+              matchId: match.matchId,
+              error: error.message,
+            };
           }
         });
 
-        try {
-          const batchResults = await Promise.all(batchPromises);
-          
-          let successCount = 0;
-          batchResults.forEach(result => {
-            if (result.success) {
-              detailedGames.push(result.game);
-              successCount++;
-            }
-          });
+        const batchResults = await Promise.all(batchPromises);
+        let successCount = 0;
+        batchResults.forEach((result) => {
+          if (result.success) {
+            detailedGames.push(result.game);
+            successCount++;
+            return;
+          }
+          detailFailures.push(result);
+        });
 
-          console.log(`  Batch ${batchIndex + 1} abgeschlossen: ${successCount}/${batch.length} erfolgreich`);
-        } catch (error) {
-          console.error(`  Fehler in Batch ${batchIndex + 1}:`, error.message);
-        }
+        console.log(
+          `  Batch ${batchIndex + 1} abgeschlossen: ${successCount}/${batch.length} erfolgreich`
+        );
 
-        // Pause zwischen Batches (konfigurierbare Wartezeit)
-        if (batchIndex < totalBatches - 1) {
-          const pauseTime = BATCH_SIZE * PAUSE_PER_REQUEST;
-          console.log(`  Warte ${pauseTime}ms vor nächstem Batch...`);
-          await new Promise(resolve => setTimeout(resolve, pauseTime));
+        if (batchIndex < totalBatches - 1 && this.detailPauseMs > 0) {
+          console.log(`  Warte ${this.detailPauseMs}ms vor nächstem Batch...`);
+          await new Promise((resolve) => setTimeout(resolve, this.detailPauseMs));
         }
       }
 
       console.log(`\n=== Abfrage abgeschlossen ===`);
-      console.log(`Geladene Spiele: ${detailedGames.length}/${allMatches.length}`);
-      console.log(`Einzigartige IDs: ${detailedGames.length}`);
+      console.log(`Geladene Spiele: ${detailedGames.length}/${uniqueMatches.length}`);
+
+      if (detailFailures.length > 0) {
+        const failedMatchIds = detailFailures
+          .slice(0, 10)
+          .map((failure) => failure.matchId)
+          .join(", ");
+        const suffix = detailFailures.length > 10 ? " ..." : "";
+        throw new Error(
+          `Unvollständiger BBN-Abruf: ${detailFailures.length}/${uniqueMatches.length} Spieldetails fehlgeschlagen (IDs: ${failedMatchIds}${suffix})`
+        );
+      }
 
       return {
         total: detailedGames.length,
@@ -248,8 +400,10 @@ class TeamSLService {
         pageSize: detailedGames.length,
         actualCount: detailedGames.length,
         complete: true,
-        apiReportedTotal: allMatches.length,
-        duplicateGames: duplicateGames
+        apiReportedTotal: uniqueMatches.length,
+        sourceLeagueCount: ligen.length,
+        sourceMatchCount: uniqueMatches.length,
+        detailFailures: [],
       };
     } catch (error) {
       console.error("Fehler beim Abrufen aller offenen Spiele:", error.message);
@@ -257,64 +411,87 @@ class TeamSLService {
     }
   }
 
-  // Neue Methoden basierend auf der alten teamSLService-old.js
   async fetchAllLigen(index = 0) {
-    try {
-      const { BasketballBundSDK } = await import("basketball-bund-sdk");
-      const sdk = new BasketballBundSDK();
-      
-      const response = await sdk.wam.getLigaList({
-        akgGeschlechtIds: [],
-        altersklasseIds: [],
-        gebietIds: [],
-        ligatypIds: [],
-        sortBy: 0,
-        spielklasseIds: [],
-        token: "",
-        verbandIds: [VERBAND_ID],
-        startAtIndex: index,
+    let currentIndex = parsePositiveInteger(index, 0);
+    const allLigen = [];
+    const seenLigaIds = new Set();
+
+    while (true) {
+      const response = await this.requestPublicApi({
+        method: "post",
+        url: "/wam/liga/list",
+        data: {
+          akgGeschlechtIds: [],
+          altersklasseIds: [],
+          gebietIds: [],
+          ligatypIds: [],
+          sortBy: 0,
+          spielklasseIds: [],
+          token: "",
+          verbandIds: [VERBAND_ID],
+        },
+        params: { startAtIndex: currentIndex },
       });
 
-      if (!response || !response.ligen) {
-        console.log("Keine Ligen gefunden");
-        return [];
+      if (!Array.isArray(response.ligen)) {
+        throw new Error(
+          `Ungültige Liga-Antwort von BBN bei startAtIndex=${currentIndex}`
+        );
       }
 
-      const ligen = response.ligen.filter(liga => liga.verbandId !== 30);
-      console.log(`${ligen.length} Ligen bei Index ${index} gefunden`);
+      const pageLigen = response.ligen.filter((liga) => liga.verbandId !== 30);
+      pageLigen.forEach((liga) => {
+        if (liga.ligaId === undefined || liga.ligaId === null) {
+          throw new Error("BBN hat eine Liga ohne ligaId geliefert");
+        }
 
-      // Rekursiv weitere Ligen laden wenn hasMoreData = true
-      if (response.hasMoreData) {
-        console.log("Lade weitere Ligen...");
-        const moreLigen = await this.fetchAllLigen(parseInt(index) + parseInt(response.size));
-        return [...ligen, ...moreLigen];
+        const ligaKey = String(liga.ligaId);
+        if (!seenLigaIds.has(ligaKey)) {
+          seenLigaIds.add(ligaKey);
+          allLigen.push(liga);
+        }
+      });
+
+      console.log(
+        `${pageLigen.length} Ligen bei Index ${currentIndex} gefunden`
+      );
+
+      if (!response.hasMoreData) break;
+
+      const pageSize = Number(response.size);
+      if (!Number.isInteger(pageSize) || pageSize <= 0) {
+        throw new Error(
+          `BBN liefert hasMoreData ohne gültige Seitengröße bei startAtIndex=${currentIndex}`
+        );
       }
 
-      return ligen;
-    } catch (error) {
-      console.error("Fehler beim Laden der Ligen:", error.message);
-      return [];
+      const nextIndex = currentIndex + pageSize;
+      if (nextIndex <= currentIndex) {
+        throw new Error("Ungültige BBN-Liga-Paginierung erkannt");
+      }
+      currentIndex = nextIndex;
     }
+
+    if (allLigen.length === 0) {
+      throw new Error("BBN hat keine Ligen für den konfigurierten Verband geliefert");
+    }
+
+    return allLigen;
   }
 
   async fetchMatchesForLiga(liga) {
-    try {
-      const { BasketballBundSDK } = await import("basketball-bund-sdk");
-      const sdk = new BasketballBundSDK();
-      
-      const data = await sdk.competition.getSpielplan({
-        competitionId: liga.ligaId,
-      });
+    const data = await this.requestPublicApi({
+      method: "get",
+      url: `/competition/spielplan/id/${encodeURIComponent(liga.ligaId)}`,
+    });
 
-      if (!data || !data.matches) {
-        return [];
-      }
-
-      return data.matches;
-    } catch (error) {
-      console.error(`Fehler beim Laden der Matches für Liga ${liga.ligaId}:`, error.message);
-      return [];
+    if (!Array.isArray(data.matches)) {
+      throw new Error(
+        `Ungültige Spielplan-Antwort von BBN für Liga ${liga.ligaId}`
+      );
     }
+
+    return data.matches;
   }
 
   async fetchGameDetails(matchId) {
@@ -324,11 +501,34 @@ class TeamSLService {
       }
 
       const response = await this.client.get(`/rest/assignschiri/getGame/${matchId}`);
-      return response.data;
+      return this.extractApiData(response.data);
     } catch (error) {
       console.error(`Fehler beim Laden der Game-Details für Match ${matchId}:`, error.message);
-      return null;
+      throw error;
     }
+  }
+
+  parseMatchDate(value) {
+    if (value === undefined || value === null || value === "") return null;
+
+    if (typeof value === "number" || /^\d+$/.test(String(value))) {
+      const numericValue = Number(value);
+      const milliseconds = numericValue < 100000000000
+        ? numericValue * 1000
+        : numericValue;
+      const timestampDate = new Date(milliseconds);
+      return Number.isNaN(timestampDate.getTime()) ? null : timestampDate;
+    }
+
+    const dateString = String(value).trim();
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+    if (dateOnlyMatch) {
+      const [, year, month, day] = dateOnlyMatch;
+      return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+
+    const parsedDate = new Date(dateString);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
   }
 
   filterMatchesByZeitraum(matches, zeitraum) {
@@ -374,8 +574,10 @@ class TeamSLService {
         return false;
       }
 
-      // kickoffDate ist ein Timestamp (Millisekunden)
-      const matchDate = new Date(match.kickoffDate);
+      const matchDate = this.parseMatchDate(match.kickoffDate);
+      if (!matchDate) {
+        return false;
+      }
       const matchDateOnly = new Date(matchDate.getFullYear(), matchDate.getMonth(), matchDate.getDate());
       
       // Immer nur zukünftige Spiele (ab heute)
@@ -476,27 +678,51 @@ class TeamSLService {
     console.log(`BBN Cronjob gestartet um ${startTime.toISOString()}`);
 
     try {
-      const username = process.env.TEAM_SL_USERNAME;
-      const password = process.env.TEAM_SL_PASSWORD;
+      const { username, password } = this.getTeamSLCredentials();
+      let lastError = null;
 
-      if (!username || !password) {
-        throw new Error(
-          "TEAM_SL_USERNAME und TEAM_SL_PASSWORD müssen in den Umgebungsvariablen gesetzt sein"
-        );
+      for (let attempt = 1; attempt <= this.syncRetryAttempts; attempt++) {
+        try {
+          console.log(
+            `Starte Synchronisierungsversuch ${attempt}/${this.syncRetryAttempts}`
+          );
+          await this.login(username, password);
+          const games = await this.fetchAllOpenGames(100, zeitraum);
+
+          if (!games.complete) {
+            throw new Error("BBN-Abruf ist nicht vollständig");
+          }
+
+          console.log(
+            `Cronjob erfolgreich abgeschlossen. ${games.total} Spiele abgerufen.`
+          );
+
+          return {
+            success: true,
+            gamesCount: games.total,
+            timestamp: startTime.toISOString(),
+            data: games,
+          };
+        } catch (error) {
+          lastError = error;
+          console.error(
+            `Synchronisierungsversuch ${attempt}/${this.syncRetryAttempts} fehlgeschlagen:`,
+            error.message
+          );
+          await this.logout();
+
+          if (attempt < this.syncRetryAttempts && this.syncRetryDelayMs > 0) {
+            const delay = this.syncRetryDelayMs * 2 ** (attempt - 1);
+            console.log(`Warte ${delay}ms vor dem nächsten Versuch...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
       }
 
-      await this.login(username, password);
-      const games = await this.fetchAllOpenGames(100, zeitraum);
-
-      console.log(
-        `Cronjob erfolgreich abgeschlossen. ${games.total} Spiele abgerufen.`
-      );
-
       return {
-        success: true,
-        gamesCount: games.total,
+        success: false,
+        error: lastError?.message || "BBN-Synchronisierung fehlgeschlagen",
         timestamp: startTime.toISOString(),
-        data: games,
       };
     } catch (error) {
       console.error("Cronjob fehlgeschlagen:", error.message);
@@ -518,8 +744,53 @@ class TeamSLService {
       if (result.success) {
         console.log(`Verarbeite ${result.gamesCount} Spiele...`);
 
+        const sourceMatchCount = result.data?.apiReportedTotal;
+        if (!Number.isInteger(sourceMatchCount) || sourceMatchCount < 0) {
+          throw new Error("BBN-Synchronisierung enthält keine gültige Match-Anzahl");
+        }
+
+        if (sourceMatchCount > 0) {
+          this.consecutiveEmptyAllSnapshots = 0;
+        }
+
+        let allowEmptySnapshot = false;
+        if (zeitraum === "all" && sourceMatchCount === 0) {
+          this.consecutiveEmptyAllSnapshots++;
+
+          if (
+            this.consecutiveEmptyAllSnapshots < EMPTY_SNAPSHOT_CONFIRMATIONS
+          ) {
+            console.warn(
+              `Leerer vollständiger BBN-Snapshot (${this.consecutiveEmptyAllSnapshots}/${EMPTY_SNAPSHOT_CONFIRMATIONS}). Bestehende Spiele bleiben unverändert.`
+            );
+
+            return {
+              ...result,
+              databaseResult: {
+                success: true,
+                skipped: true,
+                reason: "empty_snapshot_not_confirmed",
+                consecutiveEmptySnapshots: this.consecutiveEmptyAllSnapshots,
+              },
+            };
+          }
+
+          allowEmptySnapshot = true;
+          this.consecutiveEmptyAllSnapshots = 0;
+          console.warn(
+            "Leerer BBN-Snapshot wurde zweimal vollständig bestätigt; entferne veraltete Spiele."
+          );
+        }
+
         // Spieldaten in die Datenbank speichern
-        const dbResult = await this.saveGamesToDatabase(result.data.results, zeitraum);
+        const dbResult = await this.saveGamesToDatabase(
+          result.data.results,
+          zeitraum,
+          {
+            sourceComplete: result.data.complete === true,
+            allowEmptySnapshot,
+          }
+        );
 
         console.log("Spieldaten erfolgreich in der Datenbank gespeichert");
 
@@ -581,38 +852,84 @@ class TeamSLService {
 
 
 
-  async orphanRemoval(gamesData) {
-    try {
-      console.log("Leere alle Tabellen...");
+  async orphanRemoval(gamesData, transaction, { allowEmpty = false } = {}) {
+    const gameIds = gamesData.map((game) => game.sp.spielplanId);
 
-      // Nur die Spiele-Tabelle leeren
-      const result = await Spiel.destroy({
-        where: {
-          spielplanId: {
-            [Op.notIn]: gamesData.map((game) => game.sp.spielplanId),
-          },
-        },
-        force: true,
-      });
-      console.log(`✓ Tabelle "spiele" geleert: ${result}`);
-
-      console.log("Alle Tabellen erfolgreich geleert");
-    } catch (error) {
-      console.error("Fehler beim Leeren der Tabellen:", error.message);
-      // Foreign Key Constraints wieder aktivieren bei Fehler
-      try {
-        await Spiel.sequelize.query("PRAGMA foreign_keys = ON");
-      } catch (fkError) {
-        console.error(
-          "Fehler beim Wiederherstellen der Foreign Key Constraints:",
-          fkError.message
-        );
-      }
-      throw error;
+    if (gameIds.length === 0 && !allowEmpty) {
+      throw new Error(
+        "Orphan-Removal abgebrochen: ein leerer Snapshot darf keine Spiele löschen"
+      );
     }
+
+    const where = gameIds.length > 0
+      ? {
+          spielplanId: {
+            [Op.notIn]: gameIds,
+          },
+        }
+      : {};
+
+    const result = await Spiel.destroy({
+      where,
+      force: true,
+      transaction,
+    });
+
+    console.log(`✓ ${result} veraltete Spiele entfernt`);
+    return result;
   }
 
-  async saveGamesToDatabase(gamesData, zeitraum) {
+  async saveGamesToDatabase(
+    gamesData,
+    zeitraum,
+    { sourceComplete = true, allowEmptySnapshot = false } = {}
+  ) {
+    if (!Array.isArray(gamesData)) {
+      throw new Error("Spieldaten müssen als Array vorliegen");
+    }
+
+    if (!sourceComplete) {
+      throw new Error(
+        "Spieldaten sind nicht vollständig; Datenbank bleibt unverändert"
+      );
+    }
+
+    if (allowEmptySnapshot && zeitraum !== "all") {
+      throw new Error("Leere Snapshots dürfen nur im vollständigen Zeitraum angewendet werden");
+    }
+
+    if (gamesData.length === 0 && !allowEmptySnapshot) {
+      console.warn(
+        `Leerer ${zeitraum}-Snapshot wird nicht gespeichert; bestehende Spiele bleiben unverändert.`
+      );
+      return {
+        savedGames: 0,
+        updatedGames: 0,
+        skippedGames: 0,
+        savedVereine: 0,
+        savedSrQualifikationen: 0,
+        errors: [],
+        skippedReasons: {},
+        totalProcessed: 0,
+        success: true,
+        skipped: true,
+        reason: "empty_snapshot",
+      };
+    }
+
+    const invalidGame = gamesData.find(
+      (game) =>
+        !game?.sp ||
+        game.sp.spielplanId === undefined ||
+        game.sp.spielplanId === null
+    );
+    if (invalidGame) {
+      throw new Error(
+        "Spieldaten enthalten mindestens ein Spiel ohne spielplanId"
+      );
+    }
+
+    const transaction = await Spiel.sequelize.transaction();
     try {
       console.log("Starte Transaktion für Spieldaten...");
       console.log(`Verarbeite ${gamesData.length} Spiele...`);
@@ -651,6 +968,7 @@ class TeamSLService {
                 },
               },
               force: true,
+              transaction,
             });
             skippedReasons.notOffered++;
             skippedGames++;
@@ -664,6 +982,15 @@ class TeamSLService {
             (gameData.sr3OffenAngeboten && !gameData.sp.sr3Verein)
           ) {
             console.log(`Spiel ${gameData.sp.spielplanId} übersprungen: offen angeboten aber Verein null`);
+            await Spiel.destroy({
+              where: {
+                spielplanId: {
+                  [Op.eq]: gameData.sp.spielplanId,
+                },
+              },
+              force: true,
+              transaction,
+            });
             skippedReasons.offenAngebotenAberVereinNull++;
             skippedGames++;
             continue;
@@ -681,6 +1008,7 @@ class TeamSLService {
                 kreisId: gameData.sp.sr1Verein.kreisId,
                 bezirkId: gameData.sp.sr1Verein.bezirkId,
               },
+              transaction,
             });
 
             if (!created) {
@@ -690,7 +1018,7 @@ class TeamSLService {
                 verbandId: gameData.sp.sr1Verein.verbandId,
                 kreisId: gameData.sp.sr1Verein.kreisId,
                 bezirkId: gameData.sp.sr1Verein.bezirkId,
-              });
+              }, { transaction });
             }
 
             heimVerein = verein;
@@ -709,6 +1037,7 @@ class TeamSLService {
                 kreisId: gameData.sp.sr2Verein.kreisId,
                 bezirkId: gameData.sp.sr2Verein.bezirkId,
               },
+              transaction,
             });
 
             if (!created) {
@@ -718,7 +1047,7 @@ class TeamSLService {
                 verbandId: gameData.sp.sr2Verein.verbandId,
                 kreisId: gameData.sp.sr2Verein.kreisId,
                 bezirkId: gameData.sp.sr2Verein.bezirkId,
-              });
+              }, { transaction });
             }
 
             gastVerein = verein;
@@ -733,6 +1062,7 @@ class TeamSLService {
                 },
               },
               force: true,
+              transaction,
             });
             console.log(
               `Spiel ${gameData.sp.spielplanId} wird übersprungen - beide Vereine haben hideLink gesetzt`
@@ -741,7 +1071,7 @@ class TeamSLService {
             skippedGames++;
             continue;
           }
-          if (!heimVerein && gastVerein.hideLink) {
+          if (!heimVerein && gastVerein?.hideLink) {
             await Spiel.destroy({
               where: {
                 spielplanId: {
@@ -749,6 +1079,7 @@ class TeamSLService {
                 },
               },
               force: true,
+              transaction,
             });
             console.log(
               `Spiel ${gameData.sp.spielplanId} wird übersprungen - Heimverein nicht gefunden`
@@ -757,7 +1088,7 @@ class TeamSLService {
             skippedGames++;
             continue;
           }
-          if (!gastVerein && heimVerein.hideLink) {
+          if (!gastVerein && heimVerein?.hideLink) {
             await Spiel.destroy({
               where: {
                 spielplanId: {
@@ -765,6 +1096,7 @@ class TeamSLService {
                 },
               },
               force: true,
+              transaction,
             });
             console.log(
               `Spiel ${gameData.sp.spielplanId} wird übersprungen - Gastverein nicht gefunden`
@@ -787,6 +1119,7 @@ class TeamSLService {
                 kurzBezeichnung:
                   gameData.sp.liga.srQualifikation.kurzBezeichnung,
               },
+              transaction,
             });
 
             if (!created) {
@@ -794,7 +1127,7 @@ class TeamSLService {
                 bezeichnung: gameData.sp.liga.srQualifikation.bezeichnung,
                 kurzBezeichnung:
                   gameData.sp.liga.srQualifikation.kurzBezeichnung,
-              });
+              }, { transaction });
             }
 
             srQualifikationId = srQual.srQualifikationId;
@@ -834,6 +1167,7 @@ class TeamSLService {
               sr3VereinName: gameData.sp.sr3Verein?.vereinsname || null,
               rawData: gameData,
             },
+            transaction,
           });
 
           if (!created) {
@@ -863,7 +1197,7 @@ class TeamSLService {
               sr2VereinName: gameData.sp.sr2Verein?.vereinsname || null,
               sr3VereinName: gameData.sp.sr3Verein?.vereinsname || null,
               rawData: gameData,
-            });
+            }, { transaction });
           }
 
           if (created) {
@@ -872,17 +1206,14 @@ class TeamSLService {
             updatedGames++;
           }
         } catch (error) {
-          console.error(
-            `Fehler beim Speichern von Spiel ${gameData.sp.spielplanId}:`,
-            error.message
+          const processingError = new Error(
+            `Fehler beim Speichern von Spiel ${gameData.sp.spielplanId}: ${error.message}`
           );
-          errors.push({
-            spielplanId: gameData.sp.spielplanId,
-            error: error.message
-          });
-          skippedReasons.processingError++;
-          skippedGames++;
-          // Fehler sammeln statt Transaktion abzubrechen
+          processingError.cause = error;
+          console.error(
+            processingError.message
+          );
+          throw processingError;
         }
       }
 
@@ -920,8 +1251,12 @@ class TeamSLService {
       }
 
       if (zeitraum === "all") {
-        await this.orphanRemoval(gamesData);
+        await this.orphanRemoval(gamesData, transaction, {
+          allowEmpty: allowEmptySnapshot,
+        });
       }
+
+      await transaction.commit();
 
       return {
         savedGames,
@@ -935,10 +1270,16 @@ class TeamSLService {
         success: errors.length === 0
       };
     } catch (error) {
-      // Transaktion bei Fehler rückgängig machen
-      // await transaction.rollback(); // Removed as per new_code
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error(
+          "Fehler beim Zurückrollen der Spieldaten-Transaktion:",
+          rollbackError.message
+        );
+      }
       console.error(
-        "❌ Transaktion rückgängig gemacht aufgrund eines Fehlers:",
+        "❌ Spieldaten-Transaktion abgebrochen:",
         error.message
       );
       throw error;
