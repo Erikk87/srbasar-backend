@@ -48,7 +48,10 @@ Die API-Dokumentation ist über Swagger UI verfügbar:
 #### Spiele
 
 - `GET /api/spiele` - Alle Spiele abrufen (mit Paginierung und Filtern)
-- Unterstützt Filterung nach Datum, Liga, Spielfeld und globale Suche
+- Filter und Sortierung werden serverseitig ausgeführt: Suche, Datumsbereiche (`dateFrom`/`dateTo`), Liga, Hallen-Mehrfachauswahl (`spielfeldNames`), Lizenzstufe sowie Heim-/Gastteam
+- `atRiskOnly=true` filtert vor der Paginierung auf Spiele, bei denen `sr1OffenAngeboten` und `sr2OffenAngeboten` beide wahr sind. `isAtRisk` kennzeichnet diese Spiele; `availableFilters.atRiskCount` zählt sie im gesamten Basar und steuert die Verfügbarkeit des Filters.
+- Mit `latitude`, `longitude`, `radiusKm` und `nearbyOnly=true` übernimmt die API auch Umkreisfilter und Entfernungssortierung (`sortBy=distance`); gespeicherte Hallenkoordinaten werden dabei wiederverwendet
+- Jede Sortierung erhält als stabile Tie-Breaker Spieldatum/-zeit und Hallenname aufsteigend
 
 #### Benutzer
 
@@ -72,6 +75,8 @@ npm start          # Server starten
 npm run dev        # Entwicklungsserver mit Nodemon
 npm test           # Tests ausführen
 npm run db:migrate # Datenbank-Migrationen
+npm run db:migrate:location # additive Hallenkoordinaten-Migration
+npm run db:backfill:location # fehlende Hallenkoordinaten ergänzen, keine Spiele importieren/löschen
 npm run db:seed    # Datenbank mit Testdaten füllen
 ```
 
@@ -106,6 +111,26 @@ Der Deployment-Workflow verwendet auf dem ISPConfig-Server die Struktur
 erfolgreicher Installation atomar auf das neue Release gesetzt. PM2 lädt das
 Release anschließend per Graceful Reload. Der Healthcheck muss erfolgreich sein,
 sonst wird automatisch auf das vorherige Release zurückgeschaltet.
+
+Vor der Migration erstellt das Deployment ein komprimiertes Datenbank-Backup
+unter `shared/backups` (nur für root lesbar). Beim Deployment werden die beiden nullable Spalten `spiel_latitude` und
+`spiel_longitude` vor dem Aktivieren des neuen Releases additiv angelegt. Der
+anschließende Backfill ergänzt ausschließlich fehlende Koordinaten vorhandener
+Spiele, ohne Spiele zu löschen oder Besetzungsdaten zu verändern. Sind keine
+Koordinaten ermittelbar, bleibt das bisherige Release aktiv.
+
+Der
+Synchronisationsjob geocodiert eine Hallenadresse nur, wenn noch keine passenden
+Koordinaten in den Spielen vorhanden sind, verwendet vorhandene Koordinaten für
+weitere Spiele wieder und liefert sie über `GET /v1/spiele` an das Frontend. Ein
+Ausfall des Geocoding-Dienstes verhindert nicht den gesamten Spiel-Sync; das
+betroffene Spiel bleibt dann ohne Koordinaten und wird bei einem späteren Lauf
+erneut versucht.
+
+Entfernungen sind Luftlinien in Kilometern. Die API berechnet und filtert diese
+vor der Paginierung in der Datenbank. Spiele ohne Koordinaten erhalten `null`
+und werden nicht als Treffer im Umkreis ausgegeben. Ungültige Standortparameter
+liefern HTTP 400. Nutzerkoordinaten werden nicht in der Datenbank gespeichert.
 
 Für das Repository werden die Actions-Secrets `DEPLOY_SSH_KEY` und
 `DEPLOY_KNOWN_HOSTS` benötigt. Der private Schlüssel wird nicht im Repository

@@ -1,6 +1,6 @@
 {
   "name": "srbasar-backend",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Express.js Backend mit Sequelize und MariaDB",
   "main": "src/app.js",
   "scripts": {
@@ -17,6 +17,8 @@
     "cron:w3": "node src/jobs/cronRunner.js w3",
     "test": "jest",
     "db:migrate": "sequelize-cli db:migrate",
+    "db:migrate:location": "node ops/migrate.js",
+    "db:backfill:location": "node ops/backfillLocations.js",
     "db:seed": "sequelize-cli db:seed:all"
   },
   "dependencies": {

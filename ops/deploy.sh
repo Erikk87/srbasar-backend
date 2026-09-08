@@ -70,6 +70,9 @@ ln -s "$SHARED_DIR/logs" "$staging_release/logs"
 pushd "$staging_release" >/dev/null
 npm_config_allow_remote=root npm ci --omit=dev --no-audit --no-fund
 node --check src/app.js
+node ops/backupDatabase.js "$SHARED_DIR/backups" "$VERSION"
+node ops/migrate.js
+node ops/backfillLocations.js
 popd >/dev/null
 
 find "$staging_release" -type d -exec chmod 755 {} +
@@ -98,6 +101,13 @@ if [[ ! "$port" =~ ^[0-9]+$ ]]; then
 fi
 
 reload_backend() {
+  # PM2 gleicht die Instanzzahl bei einem Reload nicht automatisch ab.
+  local instance_count
+  instance_count="$(pm2 jlist | node -e 'let input = ""; process.stdin.on("data", chunk => input += chunk).on("end", () => { const apps = JSON.parse(input); console.log(apps.filter(app => app.name === "srbasar-backend").length); });')"
+  if [[ "$instance_count" -gt 0 && "$instance_count" -ne 2 ]]; then
+    pm2 scale srbasar-backend 2
+  fi
+
   SRBASAR_BACKEND_ROOT="$APP_ROOT" \
     SRBASAR_BACKEND_CURRENT="$CURRENT_LINK" \
     pm2 startOrReload \

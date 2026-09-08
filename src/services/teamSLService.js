@@ -1,13 +1,20 @@
 const axios = require("axios");
 const { Spiel, Verein, SrQualifikation } = require("../models");
 const { Op } = require("sequelize");
+const { getCoordinates } = require("../utils/coordinates");
 const { fieldFn } = require("../utils/licenseUtils");
+const {
+  GeocodingService,
+  getAddressKey,
+  isValidCoordinates,
+} = require("./geocodingService");
 
 // Konfigurierbare Verbands-ID (Fallback auf Standardwert 3)
 const VERBAND_ID = parseInt(process.env.TEAM_SL_VERBAND_ID || "3", 10);
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_DETAIL_CONCURRENCY = 8;
 const DEFAULT_DETAIL_PAUSE_MS = 250;
+const DEFAULT_GEOCODING_CONCURRENCY = 3;
 const EMPTY_SNAPSHOT_CONFIRMATIONS = 2;
 
 const parsePositiveInteger = (value, fallback) => {
@@ -22,6 +29,23 @@ const parseNonNegativeInteger = (value, fallback) => {
   return Number.isInteger(parsedValue) && parsedValue >= 0
     ? parsedValue
     : fallback;
+};
+
+const mapWithConcurrency = async (items, mapper, concurrency) => {
+  const results = [];
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  };
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
 };
 
 class TeamSLService {
@@ -47,6 +71,11 @@ class TeamSLService {
     this.detailPauseMs = parseNonNegativeInteger(
       process.env.TEAM_SL_DETAIL_PAUSE_MS,
       DEFAULT_DETAIL_PAUSE_MS
+    );
+    this.geocodingService = new GeocodingService();
+    this.geocodingConcurrency = parsePositiveInteger(
+      process.env.GEOCODING_CONCURRENCY,
+      DEFAULT_GEOCODING_CONCURRENCY
     );
     this.syncRetryAttempts = parsePositiveInteger(
       process.env.TEAM_SL_SYNC_RETRY_ATTEMPTS,
@@ -879,6 +908,161 @@ class TeamSLService {
     return result;
   }
 
+  getGameVenueAddress(gameData) {
+    const venue = gameData?.sp?.spielfeld || {};
+    return {
+      street: venue.strasse || "",
+      postalCode: venue.plz || "",
+      city: venue.ort || "",
+    };
+  }
+
+  isGameOffered(gameData) {
+    return [
+      [gameData?.sr1OffenAngeboten, gameData?.sr1?.lizenzNr],
+      [gameData?.sr2OffenAngeboten, gameData?.sr2?.lizenzNr],
+      [gameData?.sr3OffenAngeboten, gameData?.sr3?.lizenzNr],
+    ].some(([offered, licenseNumber]) => offered && !licenseNumber);
+  }
+
+  getVenueCoordinates(venue = {}) {
+    const latitude = (
+      venue.latitude
+        ?? venue.lat
+        ?? venue.breitengrad
+    );
+    const longitude = (
+      venue.longitude
+        ?? venue.lng
+        ?? venue.lon
+        ?? venue.laengengrad
+    );
+
+    return getCoordinates(latitude, longitude);
+  }
+
+  async getStoredVenueCoordinates(addresses) {
+    if (!addresses.length || typeof Spiel.findAll !== "function") {
+      return new Map();
+    }
+
+    try {
+      const rows = await Spiel.findAll({
+        attributes: [
+          "spielStrasse",
+          "spielPlz",
+          "spielOrt",
+          "spielLatitude",
+          "spielLongitude",
+        ],
+        where: {
+          [Op.or]: addresses.map((address) => ({
+            spielStrasse: address.street,
+            spielPlz: address.postalCode,
+            spielOrt: address.city,
+          })),
+        },
+        raw: true,
+      });
+      const coordinatesByAddress = new Map();
+
+      for (const row of rows || []) {
+        const coordinates = getCoordinates(row.spielLatitude, row.spielLongitude);
+        if (!isValidCoordinates(coordinates)) continue;
+
+        const addressKey = getAddressKey({
+          street: row.spielStrasse,
+          postalCode: row.spielPlz,
+          city: row.spielOrt,
+        });
+        if (addressKey) coordinatesByAddress.set(addressKey, coordinates);
+      }
+
+      return coordinatesByAddress;
+    } catch (error) {
+      console.warn(
+        `Gespeicherte Hallenkoordinaten konnten nicht gelesen werden: ${error.message}`
+      );
+      return new Map();
+    }
+  }
+
+  async resolveVenueCoordinates(gamesData) {
+    const venuesByKey = new Map();
+
+    for (const gameData of gamesData) {
+      if (!this.isGameOffered(gameData)) continue;
+
+      const address = this.getGameVenueAddress(gameData);
+      const key = getAddressKey(address);
+      if (!key) continue;
+
+      const sourceCoordinates = this.getVenueCoordinates(gameData.sp.spielfeld);
+      const currentVenue = venuesByKey.get(key);
+      venuesByKey.set(key, {
+        address,
+        coordinates: sourceCoordinates || currentVenue?.coordinates || null,
+      });
+    }
+
+    const addressEntries = [...venuesByKey.entries()];
+    if (!addressEntries.length) return new Map();
+
+    // In Tests oder bei einem schlanken Mock-Modell keine externen Requests ausführen.
+    if (typeof Spiel.findAll !== "function") {
+      return new Map(
+        addressEntries.map(([key, venue]) => [key, venue.coordinates])
+      );
+    }
+
+    const storedCoordinates = await this.getStoredVenueCoordinates(
+      addressEntries
+        .filter(([, venue]) => !venue.coordinates)
+        .map(([, venue]) => venue.address)
+    );
+    const coordinatesByKey = new Map();
+
+    for (const [key, venue] of addressEntries) {
+      if (venue.coordinates) {
+        coordinatesByKey.set(key, venue.coordinates);
+        continue;
+      }
+
+      if (storedCoordinates.has(key)) {
+        coordinatesByKey.set(key, storedCoordinates.get(key));
+      }
+    }
+
+    const addressesToGeocode = addressEntries.filter(
+      ([key]) => !coordinatesByKey.has(key)
+    );
+    if (addressesToGeocode.length) {
+      console.log(
+        `Ermittle Koordinaten für ${addressesToGeocode.length} neue Hallenadresse(n)...`
+      );
+    }
+
+    const geocodedEntries = await mapWithConcurrency(
+      addressesToGeocode,
+      async ([key, venue]) => {
+        try {
+          const coordinates = await this.geocodingService.geocodeAddress(
+            venue.address
+          );
+          return [key, coordinates];
+        } catch (error) {
+          console.warn(
+            `Halle konnte nicht geocodiert werden (${venue.address.city || "ohne Ort"}): ${error.message}`
+          );
+          return [key, null];
+        }
+      },
+      this.geocodingConcurrency
+    );
+
+    return new Map([...coordinatesByKey, ...geocodedEntries]);
+  }
+
   async saveGamesToDatabase(
     gamesData,
     zeitraum,
@@ -929,6 +1113,7 @@ class TeamSLService {
       );
     }
 
+    const venueCoordinatesByKey = await this.resolveVenueCoordinates(gamesData);
     const transaction = await Spiel.sequelize.transaction();
     try {
       console.log("Starte Transaktion für Spieldaten...");
@@ -1137,6 +1322,10 @@ class TeamSLService {
           // 4. SR-Lizenz berechnen
           const ligaName = gameData.sp.liga?.liganame || "";
           const srLizenz = fieldFn({ liganame: ligaName });
+          const venueAddress = this.getGameVenueAddress(gameData);
+          const gameVenueCoordinates = venueCoordinatesByKey.get(
+            getAddressKey(venueAddress)
+          ) || null;
 
           // 5. Spiel speichern/aktualisieren
           const [spiel, created] = await Spiel.findOrCreate({
@@ -1154,6 +1343,8 @@ class TeamSLService {
               spielStrasse: gameData.sp.spielfeld?.strasse || "",
               spielPlz: gameData.sp.spielfeld?.plz || "",
               spielOrt: gameData.sp.spielfeld?.ort || "",
+              spielLatitude: gameVenueCoordinates?.latitude ?? null,
+              spielLongitude: gameVenueCoordinates?.longitude ?? null,
               srQualifikationId: srQualifikationId,
               srLizenz: srLizenz,
               sr1OffenAngeboten: gameData.sr1OffenAngeboten || false,
@@ -1185,6 +1376,8 @@ class TeamSLService {
               spielStrasse: gameData.sp.spielfeld?.strasse || "",
               spielPlz: gameData.sp.spielfeld?.plz || "",
               spielOrt: gameData.sp.spielfeld?.ort || "",
+              spielLatitude: gameVenueCoordinates?.latitude ?? null,
+              spielLongitude: gameVenueCoordinates?.longitude ?? null,
               srQualifikationId: srQualifikationId,
               srLizenz: srLizenz,
               sr1OffenAngeboten: gameData.sr1OffenAngeboten || false,

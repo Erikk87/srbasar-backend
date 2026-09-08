@@ -215,6 +215,24 @@ const options = {
               type: 'string',
               description: 'Ort des Spiels'
             },
+            spielLatitude: {
+              type: 'number',
+              format: 'double',
+              nullable: true,
+              description: 'Vorab ermittelte geografische Breite des Spielorts'
+            },
+            spielLongitude: {
+              type: 'number',
+              format: 'double',
+              nullable: true,
+              description: 'Vorab ermittelte geografische Länge des Spielorts'
+            },
+            distanceKm: {
+              type: 'number',
+              format: 'double',
+              nullable: true,
+              description: 'Entfernung zum übergebenen Nutzerstandort in Kilometern'
+            },
             sr1OffenAngeboten: {
               type: 'boolean',
               description: 'SR1-Position offen angeboten'
@@ -229,7 +247,22 @@ const options = {
             },
             isAtRisk: {
               type: 'boolean',
-              description: 'Beide SR-Positionen werden offen angeboten (Ausfall bedroht)'
+              description: 'SR1 und SR2 werden beide offen angeboten (Ausfall bedroht)'
+            },
+            sr1: {
+              type: 'boolean',
+              nullable: true,
+              description: 'SR1 laut Quelldaten besetzt; null bei fehlender Angabe'
+            },
+            sr2: {
+              type: 'boolean',
+              nullable: true,
+              description: 'SR2 laut Quelldaten besetzt; null bei fehlender Angabe'
+            },
+            sr3: {
+              type: 'boolean',
+              nullable: true,
+              description: 'SR3 laut Quelldaten besetzt; null bei fehlender Angabe'
             },
             heimVerein: {
               $ref: '#/components/schemas/Verein'

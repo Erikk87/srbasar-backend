@@ -3,7 +3,8 @@ jest.mock('../src/models', () => ({
     sequelize: {
       transaction: jest.fn()
     },
-    destroy: jest.fn()
+    destroy: jest.fn(),
+    findAll: jest.fn()
   },
   Verein: {
     findOrCreate: jest.fn()
@@ -15,6 +16,7 @@ jest.mock('../src/models', () => ({
 
 const { Spiel } = require('../src/models');
 const teamSLService = require('../src/services/teamSLService');
+const { getAddressKey } = require('../src/services/geocodingService');
 
 describe('TeamSLService', () => {
   beforeEach(() => {
@@ -22,6 +24,7 @@ describe('TeamSLService', () => {
     teamSLService.consecutiveEmptyAllSnapshots = 0;
     teamSLService.detailConcurrency = 2;
     teamSLService.detailPauseMs = 0;
+    teamSLService.geocodingService.geocodeAddress = jest.fn();
   });
 
   test('loads all league pages through the public BBN API', async () => {
@@ -81,6 +84,106 @@ describe('TeamSLService', () => {
 
     expect(Spiel.sequelize.transaction).not.toHaveBeenCalled();
     expect(Spiel.destroy).not.toHaveBeenCalled();
+  });
+
+  test('reuses coordinates already stored for the same venue', async () => {
+    Spiel.findAll.mockResolvedValue([
+      {
+        spielStrasse: 'Hauptstraße 1',
+        spielPlz: '38100',
+        spielOrt: 'Braunschweig',
+        spielLatitude: 52.2689,
+        spielLongitude: 10.5268
+      }
+    ]);
+
+    const games = [
+      {
+        sr1OffenAngeboten: true,
+        sp: {
+          spielplanId: 1,
+          spielfeld: {
+            strasse: 'Hauptstraße 1',
+            plz: '38100',
+            ort: 'Braunschweig'
+          }
+        }
+      },
+      {
+        sr1OffenAngeboten: true,
+        sp: {
+          spielplanId: 2,
+          spielfeld: {
+            strasse: 'Hauptstraße 1',
+            plz: '38100',
+            ort: 'Braunschweig'
+          }
+        }
+      }
+    ];
+
+    await expect(teamSLService.resolveVenueCoordinates(games)).resolves.toEqual(
+      new Map([
+        [getAddressKey({ street: 'Hauptstraße 1', postalCode: '38100', city: 'Braunschweig' }), {
+          latitude: 52.2689,
+          longitude: 10.5268
+        }]
+      ])
+    );
+    expect(teamSLService.geocodingService.geocodeAddress).not.toHaveBeenCalled();
+  });
+
+  test('does not reuse null database coordinates as a location at zero', async () => {
+    Spiel.findAll.mockResolvedValue([{ spielStrasse: 'Straße 1', spielPlz: '10115', spielOrt: 'Berlin', spielLatitude: null, spielLongitude: null }]);
+    teamSLService.geocodingService.geocodeAddress.mockResolvedValue({ latitude: 52.5, longitude: 13.4 });
+    const coordinates = await teamSLService.resolveVenueCoordinates([{ sr1OffenAngeboten: true, sp: {
+      spielplanId: 1, spielfeld: { strasse: 'Straße 1', plz: '10115', ort: 'Berlin' }
+    } }]);
+    expect(teamSLService.geocodingService.geocodeAddress).toHaveBeenCalledTimes(1);
+    expect([...coordinates.values()]).toEqual([{ latitude: 52.5, longitude: 13.4 }]);
+  });
+
+  test('geocodes each new venue address only once per sync', async () => {
+    Spiel.findAll.mockResolvedValue([]);
+    teamSLService.geocodingService.geocodeAddress
+      .mockResolvedValueOnce({ latitude: 52.2689, longitude: 10.5268 })
+      .mockResolvedValueOnce({ latitude: 52.1576, longitude: 10.4158 });
+
+    const games = [
+      {
+        sr1OffenAngeboten: true,
+        sp: {
+          spielplanId: 1,
+          spielfeld: { strasse: 'Hauptstraße 1', plz: '38100', ort: 'Braunschweig' }
+        }
+      },
+      {
+        sr1OffenAngeboten: true,
+        sp: {
+          spielplanId: 2,
+          spielfeld: { strasse: ' Hauptstraße 1 ', plz: '38100', ort: 'Braunschweig' }
+        }
+      },
+      {
+        sr1OffenAngeboten: true,
+        sp: {
+          spielplanId: 3,
+          spielfeld: { strasse: 'Ringstraße 2', plz: '38226', ort: 'Salzgitter' }
+        }
+      }
+    ];
+
+    const coordinates = await teamSLService.resolveVenueCoordinates(games);
+
+    expect(teamSLService.geocodingService.geocodeAddress).toHaveBeenCalledTimes(2);
+    expect(coordinates.get(getAddressKey({ street: 'Hauptstraße 1', postalCode: '38100', city: 'Braunschweig' }))).toEqual({
+      latitude: 52.2689,
+      longitude: 10.5268
+    });
+    expect(coordinates.get(getAddressKey({ street: 'Ringstraße 2', postalCode: '38226', city: 'Salzgitter' }))).toEqual({
+      latitude: 52.1576,
+      longitude: 10.4158
+    });
   });
 
   test('does not save a snapshot marked as incomplete', async () => {

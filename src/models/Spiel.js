@@ -47,6 +47,16 @@ const Spiel = sequelize.define('Spiel', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  spielLatitude: {
+    type: DataTypes.DOUBLE,
+    allowNull: true,
+    comment: 'Geografische Breite des Spielorts, beim Sync aus der Adresse ermittelt'
+  },
+  spielLongitude: {
+    type: DataTypes.DOUBLE,
+    allowNull: true,
+    comment: 'Geografische Länge des Spielorts, beim Sync aus der Adresse ermittelt'
+  },
   sr1OffenAngeboten: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
