@@ -90,6 +90,12 @@ function addAndCondition(whereClause, condition) {
   whereClause[Op.and] = [...(whereClause[Op.and] || []), condition];
 }
 
+function cloneWhereClause(whereClause) {
+  const clonedWhereClause = { ...whereClause };
+  if (whereClause[Op.and]) clonedWhereClause[Op.and] = [...whereClause[Op.and]];
+  return clonedWhereClause;
+}
+
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
@@ -183,10 +189,6 @@ class SpieleController {
         : requestedSort.sortBy;
       const finalSortOrder = requestedSort.sortOrder;
       const whereClause = {};
-      if (atRiskOnly === true || atRiskOnly === "true") {
-        whereClause.sr1OffenAngeboten = true;
-        whereClause.sr2OffenAngeboten = true;
-      }
 
       if (dateRange?.invalid) {
         addAndCondition(whereClause, literal("1 = 0"));
@@ -252,10 +254,27 @@ class SpieleController {
         addAndCondition(whereClause, literal(`${distanceExpression} <= ${requestedRadiusKm}`));
       }
 
+      // Der vorbereitete Ausfallfilter bezieht sich auf den aktuellen Kontext,
+      // darf sich für seine eigene Verfügbarkeit aber nicht selbst einschließen.
+      const availableRiskWhere = cloneWhereClause(whereClause);
+      const riskWhere = {
+        ...availableRiskWhere,
+        sr1OffenAngeboten: true,
+        sr2OffenAngeboten: true
+      };
+      if (atRiskOnly === true || atRiskOnly === "true") {
+        whereClause.sr1OffenAngeboten = true;
+        whereClause.sr2OffenAngeboten = true;
+      }
+
       const allSpiele = await Spiel.findAll({
         attributes: getFilterAttributes()
       });
-      const availableFilters = getAvailableFilters(allSpiele);
+      const atRiskCount = await Spiel.count({ where: riskWhere });
+      const availableFilters = {
+        ...getAvailableFilters(allSpiele),
+        atRiskCount: Number(atRiskCount) || 0
+      };
       const distanceAttributes = distanceExpression
         ? { include: [[literal(distanceExpression), "distanceKm"]] }
         : undefined;

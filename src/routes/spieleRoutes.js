@@ -141,7 +141,7 @@ const router = express.Router();
  *                         atRiskCount:
  *                           type: integer
  *                           minimum: 0
- *                           description: Anzahl ausfallbedrohter Spiele im gesamten Basar, unabhängig von Filtern und Seite
+ *                           description: Anzahl ausfallbedrohter Spiele im aktuellen Filterkontext, ohne den atRiskOnly-Filter selbst
  *                         spielfeldName:
  *                           type: array
  *                           items:

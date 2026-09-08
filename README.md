@@ -49,7 +49,7 @@ Die API-Dokumentation ist über Swagger UI verfügbar:
 
 - `GET /api/spiele` - Alle Spiele abrufen (mit Paginierung und Filtern)
 - Filter und Sortierung werden serverseitig ausgeführt: Suche, Datumsbereiche (`dateFrom`/`dateTo`), Liga, Hallen-Mehrfachauswahl (`spielfeldNames`), Lizenzstufe sowie Heim-/Gastteam
-- `atRiskOnly=true` filtert vor der Paginierung auf Spiele, bei denen `sr1OffenAngeboten` und `sr2OffenAngeboten` beide wahr sind. `isAtRisk` kennzeichnet diese Spiele; `availableFilters.atRiskCount` zählt sie im gesamten Basar und steuert die Verfügbarkeit des Filters.
+- `atRiskOnly=true` filtert vor der Paginierung auf Spiele, bei denen `sr1OffenAngeboten` und `sr2OffenAngeboten` beide wahr sind. `isAtRisk` kennzeichnet diese Spiele; `availableFilters.atRiskCount` zählt sie im aktuellen Filterkontext (ohne `atRiskOnly`) und steuert die Verfügbarkeit des Filters.
 - Mit `latitude`, `longitude`, `radiusKm` und `nearbyOnly=true` übernimmt die API auch Umkreisfilter und Entfernungssortierung (`sortBy=distance`); gespeicherte Hallenkoordinaten werden dabei wiederverwendet
 - Jede Sortierung erhält als stabile Tie-Breaker Spieldatum/-zeit und Hallenname aufsteigend
 

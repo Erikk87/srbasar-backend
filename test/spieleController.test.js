@@ -1,7 +1,8 @@
 jest.mock('../src/models', () => ({
   Spiel: {
     findAll: jest.fn(),
-    findAndCountAll: jest.fn()
+    findAndCountAll: jest.fn(),
+    count: jest.fn()
   },
   Verein: {},
   SrQualifikation: {}
@@ -40,6 +41,7 @@ describe('SpieleController', () => {
       count: 1,
       rows: [createGame()]
     });
+    Spiel.count.mockResolvedValue(0);
   });
 
   test.each([
@@ -165,25 +167,41 @@ describe('SpieleController', () => {
     expect(Spiel.findAndCountAll).not.toHaveBeenCalled();
   });
 
-  test('reports risk availability across the whole bazaar even on an empty filtered page', async () => {
+  test('reports risk availability within the active filter context', async () => {
     Spiel.findAll.mockResolvedValue([
       { sr1OffenAngeboten: true, sr2OffenAngeboten: true },
       { sr1OffenAngeboten: true, sr2OffenAngeboten: false },
       { sr1OffenAngeboten: false, sr2OffenAngeboten: true },
       { sr1OffenAngeboten: true, sr3OffenAngeboten: true }
     ]);
+    Spiel.count.mockResolvedValue(0);
     Spiel.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
     const response = createResponse();
-    await spieleController.getAllSpiele({ query: { search: 'Nicht vorhanden', page: '9' } }, response);
-    expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(1);
+    await spieleController.getAllSpiele({ query: {
+      search: 'Nicht vorhanden', page: '9', dateFrom: '2026-09-12', dateTo: '2026-09-13',
+      atRiskOnly: 'true'
+    } }, response);
+    expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(0);
     expect(Spiel.findAll.mock.calls[0][0].where).toBeUndefined();
     expect(Spiel.findAll.mock.calls[0][0].attributes).toEqual(expect.arrayContaining(['sr1OffenAngeboten', 'sr2OffenAngeboten']));
+    const riskQuery = Spiel.count.mock.calls[0][0].where;
+    expect(riskQuery).toMatchObject({ sr1OffenAngeboten: true, sr2OffenAngeboten: true });
+    expect(riskQuery[Op.and]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ [Op.or]: expect.any(Array) })
+    ]));
   });
 
   test('reports no available risk filter when only one SR position is offered', async () => {
     const response = createResponse();
     await spieleController.getAllSpiele({ query: {} }, response);
     expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(0);
+  });
+
+  test('keeps the prepared filter available when the active risk filter is enabled', async () => {
+    Spiel.count.mockResolvedValue(2);
+    const response = createResponse();
+    await spieleController.getAllSpiele({ query: { atRiskOnly: 'true' } }, response);
+    expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(2);
   });
 
   test('preserves SR clubs and distinguishes assigned, unassigned and missing source data', async () => {

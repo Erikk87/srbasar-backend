@@ -1,5 +1,5 @@
 jest.mock('../src/models', () => ({
-  Spiel: { findAll: jest.fn(), findAndCountAll: jest.fn() },
+  Spiel: { findAll: jest.fn(), findAndCountAll: jest.fn(), count: jest.fn() },
   Verein: {}, SrQualifikation: {}
 }));
 
@@ -11,7 +11,7 @@ function response() {
   return { json: jest.fn(), status: jest.fn().mockReturnThis() };
 }
 
-describe('risk filter and global availability', () => {
+describe('risk filter and contextual availability', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Spiel.findAll.mockResolvedValue([
@@ -20,6 +20,7 @@ describe('risk filter and global availability', () => {
       { sr1OffenAngeboten: false, sr2OffenAngeboten: true }
     ]);
     Spiel.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
+    Spiel.count.mockResolvedValue(1);
   });
 
   test('adds both SR conditions before pagination while preserving search and league filtering', async () => {
@@ -52,6 +53,7 @@ describe('risk filter and global availability', () => {
 
   test('returns zero availability after the last at-risk game disappears', async () => {
     Spiel.findAll.mockResolvedValue([{ sr1OffenAngeboten: true, sr2OffenAngeboten: false }]);
+    Spiel.count.mockResolvedValue(0);
     const res = response();
     await controller.getAllSpiele({ query: {} }, res);
     expect(res.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(0);
