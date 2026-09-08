@@ -52,6 +52,12 @@ const router = express.Router();
  *           default: spieldatum
  *         description: Feld für die Sortierung
  *       - in: query
+ *         name: atRiskOnly
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: Nur Spiele, bei denen beide SR-Positionen offen angeboten werden; serverseitig vor Paginierung
+ *       - in: query
  *         name: sortOrder
  *         schema:
  *           type: string
@@ -81,6 +87,10 @@ const router = express.Router();
  *                     availableFilters:
  *                       type: object
  *                       properties:
+ *                         atRiskCount:
+ *                           type: integer
+ *                           minimum: 0
+ *                           description: Anzahl ausfallbedrohter Spiele im gesamten Basar, unabhängig von aktueller Seite und Filtern
  *                         spielfeldName:
  *                           type: array
  *                           items:
@@ -96,6 +106,8 @@ const router = express.Router();
  *                           items:
  *                             type: integer
  *                           description: Verfügbare Spieldaten (Unix-Timestamp)
+ *       400:
+ *         description: Ungültiger Filterwert
  *       500:
  *         description: Serverfehler
  *         content:

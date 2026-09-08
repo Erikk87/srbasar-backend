@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const { Spiel, Verein, SrQualifikation } = require("../models");
 const parseJsonValue = require("../utils/parseJsonValue");
+const { isGameAtRisk, getRefereePresence } = require("../utils/refereeStatus");
 
 class SpieleController {
   async getAllSpiele(req, res) {
@@ -13,9 +14,14 @@ class SpieleController {
         spielfeldName,
         srLizenz,
         search,
+        atRiskOnly,
         sortBy = "spieldatum",
         sortOrder = "ASC",
       } = req.query;
+
+      if (atRiskOnly !== undefined && ![true, false, "true", "false"].includes(atRiskOnly)) {
+        return res.status(400).json({ success: false, error: "atRiskOnly muss true oder false sein" });
+      }
 
       const pageNumber = parseInt(page);
       const pageSize = Math.min(parseInt(limit), 100);
@@ -71,6 +77,10 @@ class SpieleController {
 
       // Filter-Objekt aufbauen
       const whereClause = {};
+      if (atRiskOnly === true || atRiskOnly === "true") {
+        whereClause.sr1OffenAngeboten = true;
+        whereClause.sr2OffenAngeboten = true;
+      }
 
       // Timestamp-Filter verbessern - suche nach Datum (nicht exakter Timestamp)
       if (spieldatum) {
@@ -236,6 +246,8 @@ class SpieleController {
         ? updatedAvailableFilters 
         : availableFilters;
 
+      finalAvailableFilters.atRiskCount = allSpiele.filter(isGameAtRisk).length;
+
       // Paginierungs-Metadaten
       const totalPages = Math.ceil(count / pageSize);
       const hasNextPage = pageNumber < totalPages;
@@ -258,11 +270,12 @@ class SpieleController {
               timeZone: "Europe/Berlin",
             });
 
-          const rawData = parseJsonValue(spielData.rawData)
-          spielData.sr1 = rawData?.sr1 !== null 
-          spielData.sr2 = rawData?.sr2 !== null 
-          spielData.sr3 = rawData?.sr3 !== null
         }
+        const rawData = parseJsonValue(spielData.rawData);
+        spielData.sr1 = getRefereePresence(rawData, "sr1");
+        spielData.sr2 = getRefereePresence(rawData, "sr2");
+        spielData.sr3 = getRefereePresence(rawData, "sr3");
+        spielData.isAtRisk = isGameAtRisk(spielData);
         delete spielData.rawData;
         delete spielData.sr1VereinId;
         delete spielData.sr2VereinId;

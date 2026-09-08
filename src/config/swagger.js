@@ -227,6 +227,10 @@ const options = {
               type: 'boolean',
               description: 'SR3-Position offen angeboten'
             },
+            isAtRisk: {
+              type: 'boolean',
+              description: 'Beide SR-Positionen werden offen angeboten (Ausfall bedroht)'
+            },
             heimVerein: {
               $ref: '#/components/schemas/Verein'
             },
