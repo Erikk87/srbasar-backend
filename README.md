@@ -112,6 +112,11 @@ erfolgreicher Installation atomar auf das neue Release gesetzt. PM2 lädt das
 Release anschließend per Graceful Reload. Der Healthcheck muss erfolgreich sein,
 sonst wird automatisch auf das vorherige Release zurückgeschaltet.
 
+Vor dem Upload deaktiviert die Action ausdrücklich alte PM2-Datei-Wächter nur
+für `srbasar-backend`, ohne die Prozesse zu stoppen. Ein bloßes `watch: false`
+in der Konfiguration beseitigt bereits laufende Watcher nicht zuverlässig.
+Nach dem erfolgreichen Reload wird die PM2-Konfiguration gespeichert.
+
 Vor der Migration erstellt das Deployment ein komprimiertes Datenbank-Backup
 unter `shared/backups` (nur für root lesbar). Beim Deployment werden die beiden nullable Spalten `spiel_latitude` und
 `spiel_longitude` vor dem Aktivieren des neuen Releases additiv angelegt. Der

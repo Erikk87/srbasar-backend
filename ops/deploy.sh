@@ -148,4 +148,5 @@ if ! reload_backend || ! health_check; then
   exit 83
 fi
 
+pm2 save
 echo "Backend release $VERSION is active on port $port."
