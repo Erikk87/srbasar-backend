@@ -56,7 +56,7 @@ ln -s "$SHARED_DIR/.env" "$staging_release/.env"
 ln -s "$SHARED_DIR/logs" "$staging_release/logs"
 
 pushd "$staging_release" >/dev/null
-npm ci --omit=dev --no-audit --no-fund
+npm_config_allow_remote=root npm ci --omit=dev --no-audit --no-fund
 node --check src/app.js
 popd >/dev/null
 
