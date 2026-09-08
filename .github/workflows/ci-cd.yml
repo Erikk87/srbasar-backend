@@ -19,7 +19,7 @@ env:
   DEPLOY_PORT: '22'
   DEPLOY_USER: root
   BACKEND_ROOT: /var/www/clients/client2/web3/private
-  BACKEND_INCOMING: /var/www/clients/client2/web3/.srbasar/incoming/backend
+  BACKEND_INCOMING: /var/www/clients/client2/web3/private/.srbasar/incoming/backend
 
 jobs:
   quality:
@@ -83,10 +83,12 @@ jobs:
         run: |
           set -euo pipefail
           archive="$BACKEND_INCOMING/srbasar-backend-${VERSION}.tar.gz"
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+          ssh -p "$DEPLOY_PORT" -i "$HOME/.ssh/id_ed25519" \
+            -o IdentitiesOnly=yes -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "install -d -m 700 '$BACKEND_INCOMING'"
           git archive --format=tar.gz --prefix=source/ "$GITHUB_SHA" | \
-            ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            ssh -p "$DEPLOY_PORT" -i "$HOME/.ssh/id_ed25519" \
+            -o IdentitiesOnly=yes -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "tmp='$archive.tmp.$$'; cat > \"\$tmp\"; mv -f \"\$tmp\" '$archive'"
 
       - name: Activate release
@@ -97,5 +99,6 @@ jobs:
           set -euo pipefail
           archive="$BACKEND_INCOMING/srbasar-backend-${VERSION}.tar.gz"
           staging="$BACKEND_ROOT/.incoming-${VERSION}-$$"
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+          ssh -p "$DEPLOY_PORT" -i "$HOME/.ssh/id_ed25519" \
+            -o IdentitiesOnly=yes -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "set -euo pipefail; mkdir -p '$staging'; tar --extract --gzip --file '$archive' --directory '$staging' --strip-components=1 --no-same-owner --no-same-permissions; bash '$staging/ops/deploy.sh' '$VERSION' '$staging'; rm -rf -- '$staging' '$archive'"
