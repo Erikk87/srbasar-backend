@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
 const Spiel = sequelize.define('Spiel', {
+  hallId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
   spielplanId: {
     type: DataTypes.INTEGER,
     primaryKey: true,

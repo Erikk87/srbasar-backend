@@ -12,6 +12,7 @@ const vereinRoutes = require('./routes/vereinRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const { sequelize } = require('./config/database');
 const cronService = require('./services/cronService');
+const ballersClub = require('./modules/ballersclub');
 
 // Swagger
 const swaggerUi = require('swagger-ui-express');
@@ -62,6 +63,7 @@ app.use('/v1/spiele', spieleRoutes);
 app.use('/v1/users', userRoutes);
 app.use('/v1/vereine', vereinRoutes);
 app.use('/v1/admin', adminRoutes);
+app.use('/v1/ballersclub', ballersClub.router);
 
 // Swagger JSON
 app.get('/swagger.json', (req, res) => {
@@ -117,6 +119,7 @@ const startServer = async () => {
       // Cron-Jobs nur einmal im PM2-Cluster starten.
       if (!process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0') {
         cronService.startTeamSLCronJobs();
+        ballersClub.start();
       }
     });
 
@@ -136,6 +139,7 @@ const gracefulShutdown = async (signal) => {
   
   // Stoppe alle Cron-Jobs
   cronService.stopTeamSLCronJobs();
+  await ballersClub.stop();
   
   if (server) {
     await new Promise((resolve) => {

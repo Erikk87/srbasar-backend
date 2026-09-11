@@ -2,6 +2,9 @@
 
 Express.js Backend mit Sequelize und SQLite für das Srbasar-System zur Verwaltung von Basketball-Spielen und Schiedsrichtern.
 
+Das eigenständige [Ballers-Club-Modul](docs/ballersclub.md) ergänzt den Basar um
+offene Turniere aus Google Sheets, eine separate ENV und dauerhafte Hallen-Mappings.
+
 ## 🚀 Schnellstart
 
 ### Voraussetzungen

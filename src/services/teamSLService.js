@@ -1,5 +1,6 @@
 const axios = require("axios");
-const { Spiel, Verein, SrQualifikation } = require("../models");
+const { Spiel, Verein, SrQualifikation, Hall } = require("../models");
+const hallRepository = require('../repositories/hallRepository');
 const { Op } = require("sequelize");
 const { getCoordinates } = require("../utils/coordinates");
 const { fieldFn } = require("../utils/licenseUtils");
@@ -72,7 +73,7 @@ class TeamSLService {
       process.env.TEAM_SL_DETAIL_PAUSE_MS,
       DEFAULT_DETAIL_PAUSE_MS
     );
-    this.geocodingService = new GeocodingService();
+    this.geocodingService = new GeocodingService({ repository: Hall ? require('../repositories/geocodingRepository') : null });
     this.geocodingConcurrency = parsePositiveInteger(
       process.env.GEOCODING_CONCURRENCY,
       DEFAULT_GEOCODING_CONCURRENCY
@@ -652,6 +653,9 @@ class TeamSLService {
             srQualifikation: game1.liga?.srQualifikation
           },
           spielfeld: {
+            id: game1.spielfeld?.spielfeldId ?? game1.spielfeld?.id ?? null,
+            latitude: game1.spielfeld?.latitude ?? game1.spielfeld?.lat ?? null,
+            longitude: game1.spielfeld?.longitude ?? game1.spielfeld?.lng ?? null,
             bezeichnung: game1.spielfeld?.bezeichnung || 'N/A',
             strasse: game1.spielfeld?.strasse || '',
             plz: game1.spielfeld?.plz || '',
@@ -966,6 +970,12 @@ class TeamSLService {
       });
       const coordinatesByAddress = new Map();
 
+      const history = await hallRepository.coordinatesForAddresses(addresses);
+      for (const hall of history) {
+        const coordinates = getCoordinates(hall.latitude, hall.longitude);
+        if (coordinates) coordinatesByAddress.set(getAddressKey(hall), coordinates);
+      }
+
       for (const row of rows || []) {
         const coordinates = getCoordinates(row.spielLatitude, row.spielLongitude);
         if (!isValidCoordinates(coordinates)) continue;
@@ -1114,6 +1124,18 @@ class TeamSLService {
     }
 
     const venueCoordinatesByKey = await this.resolveVenueCoordinates(gamesData);
+    const hallIds = new Map();
+    if (Hall) {
+      for (const game of gamesData) {
+        const venue = game.sp.spielfeld || {};
+        const address = this.getGameVenueAddress(game);
+        const key = hallRepository.identityKey({ name: venue.bezeichnung, ...address });
+        if (hallIds.has(key)) continue;
+        const coordinates = venueCoordinatesByKey.get(getAddressKey(address));
+        const hall = await hallRepository.rememberVenue({ name: venue.bezeichnung, ...address, teamSlId: venue.id, ...coordinates });
+        hallIds.set(key, hall?.id ?? null);
+      }
+    }
     const transaction = await Spiel.sequelize.transaction();
     try {
       console.log("Starte Transaktion für Spieldaten...");
@@ -1331,6 +1353,7 @@ class TeamSLService {
           const [spiel, created] = await Spiel.findOrCreate({
             where: { spielplanId: gameData.sp.spielplanId },
             defaults: {
+              hallId: hallIds.get(hallRepository.identityKey({ name: gameData.sp.spielfeld?.bezeichnung, ...venueAddress })) ?? null,
               spieldatum: gameData.sp.spieldatum,
               heimVereinId: gameData.sp.sr1Verein?.vereinId || null,
               gastVereinId: gameData.sp.sr2Verein?.vereinId || null,
@@ -1364,6 +1387,7 @@ class TeamSLService {
           if (!created) {
             // Update bestehenden Eintrag
             await spiel.update({
+              hallId: hallIds.get(hallRepository.identityKey({ name: gameData.sp.spielfeld?.bezeichnung, ...venueAddress })) ?? null,
               spieldatum: gameData.sp.spieldatum,
               heimVereinId: gameData.sp.sr1Verein?.vereinId || null,
               gastVereinId: gameData.sp.sr2Verein?.vereinId || null,

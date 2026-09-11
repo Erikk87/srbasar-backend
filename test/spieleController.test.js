@@ -114,6 +114,20 @@ describe('SpieleController', () => {
     expect(query.order[2]).toEqual(['spieldatum', 'ASC']);
   });
 
+  test('reports exact LSE availability in the current non-license filter context', async () => {
+    Spiel.count.mockResolvedValue(3);
+    const response = createResponse();
+
+    await spieleController.getAllSpiele({ query: {
+      dateFrom: '2026-09-12', dateTo: '2026-09-13', ligaName: 'Oberliga', srLizenz: 'LSD'
+    } }, response);
+
+    const lseQuery = Spiel.count.mock.calls[1][0].where;
+    expect(lseQuery.srLizenz).toBe('LSE');
+    expect(lseQuery.ligaName[Op.like]).toBe('%Oberliga%');
+    expect(response.json.mock.calls[0][0].data.availableFilters.lseCount).toBe(3);
+  });
+
   test('adds server-side distance filtering, distance data and nulls-last sorting', async () => {
     const response = createResponse();
 
@@ -186,13 +200,9 @@ describe('SpieleController', () => {
       { sr1OffenAngeboten: false, sr2OffenAngeboten: true },
       { sr1OffenAngeboten: true, sr3OffenAngeboten: true }
     ]);
-    Spiel.count.mockResolvedValue(0);
     Spiel.findAndCountAll.mockResolvedValue({ count: 0, rows: [] });
     const response = createResponse();
-    await spieleController.getAllSpiele({ query: {
-      search: 'Nicht vorhanden', page: '9', dateFrom: '2026-09-12', dateTo: '2026-09-13',
-      atRiskOnly: 'true'
-    } }, response);
+    await spieleController.getAllSpiele({ query: { search: 'Nicht vorhanden', page: '9', dateFrom: '2026-09-12', dateTo: '2026-09-13', atRiskOnly: 'true' } }, response);
     expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(0);
     expect(Spiel.findAll.mock.calls[0][0].where).toBeUndefined();
     expect(Spiel.findAll.mock.calls[0][0].attributes).toEqual(expect.arrayContaining(['sr1OffenAngeboten', 'sr2OffenAngeboten']));
@@ -214,20 +224,6 @@ describe('SpieleController', () => {
     const response = createResponse();
     await spieleController.getAllSpiele({ query: { atRiskOnly: 'true' } }, response);
     expect(response.json.mock.calls[0][0].data.availableFilters.atRiskCount).toBe(2);
-  });
-
-  test('reports exact LSE availability in the current non-license filter context', async () => {
-    Spiel.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
-    const response = createResponse();
-
-    await spieleController.getAllSpiele({ query: {
-      dateFrom: '2026-09-12', dateTo: '2026-09-13', ligaName: 'Oberliga', srLizenz: 'LSD'
-    } }, response);
-
-    const lseQuery = Spiel.count.mock.calls[1][0].where;
-    expect(lseQuery.srLizenz).toBe('LSE');
-    expect(lseQuery.ligaName[Op.like]).toBe('%Oberliga%');
-    expect(response.json.mock.calls[0][0].data.availableFilters.lseCount).toBe(3);
   });
 
   test('preserves SR clubs and distinguishes assigned, unassigned and missing source data', async () => {

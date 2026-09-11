@@ -39,6 +39,7 @@ async function main() {
   try {
     await sequelize.authenticate();
     await ensureLocationColumns();
+    await ensureHallHistory();
     console.log("Datenbankmigration erfolgreich abgeschlossen.");
   } finally {
     await sequelize.close();
@@ -52,4 +53,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { ensureLocationColumns };
+async function ensureHallHistory() {
+  const queryInterface = sequelize.getQueryInterface();
+  const columns = await queryInterface.describeTable('spiele');
+  if (!columns.hall_id) {
+    await queryInterface.addColumn('spiele', 'hall_id', { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, references: { model: 'hallen', key: 'id' }, onDelete: 'SET NULL', onUpdate: 'CASCADE' });
+  }
+  await require('../src/repositories/hallRepository').seedFromGames();
+}
+
+module.exports = { ensureLocationColumns, ensureHallHistory };

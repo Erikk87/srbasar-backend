@@ -12,6 +12,13 @@ const router = express.Router();
  *     tags: [Spiele]
  *     parameters:
  *       - in: query
+ *         name: source
+ *         schema:
+ *           type: string
+ *           enum: [all, team-sl, ballers-club]
+ *           default: all
+ *         description: Quelle vor Filterung und gemeinsamer Paginierung einschränken
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer

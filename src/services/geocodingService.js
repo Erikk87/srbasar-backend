@@ -28,7 +28,8 @@ const isValidCoordinates = (coordinates) => {
 };
 
 class GeocodingService {
-  constructor() {
+  constructor({ repository = null } = {}) {
+    this.repository = repository;
     this.client = axios.create({
       baseURL: process.env.GEOCODING_API_URL || DEFAULT_GEOCODING_API_URL,
       timeout: parsePositiveInteger(
@@ -50,24 +51,34 @@ class GeocodingService {
     if (this.cache.has(key)) return this.cache.get(key);
     if (this.pendingRequests.has(key)) return this.pendingRequests.get(key);
 
+    const request = this.resolveAddress(key, address).finally(() => this.pendingRequests.delete(key));
+    this.pendingRequests.set(key, request);
+    return request;
+  }
+
+  async resolveAddress(key, address) {
+    if (this.repository) {
+      const cached = await this.repository.lookup(key);
+      if (cached.hit) return cached.coordinates;
+      if (!await this.repository.claim(key)) return null;
+    }
     const query = [address.street, address.postalCode, address.city, "Deutschland"]
       .filter(Boolean)
       .join(", ");
-    const request = this.client.get("", {
+    return this.client.get("", {
       params: {
         q: query,
         limit: 1,
       },
-    }).then((response) => {
+    }).then(async (response) => {
       const coordinates = this.extractCoordinates(response.data);
       if (coordinates) this.cache.set(key, coordinates);
+      if (this.repository) await this.repository.save(key, coordinates);
       return coordinates;
-    }).finally(() => {
-      this.pendingRequests.delete(key);
+    }).catch(async (error) => {
+      if (this.repository) await this.repository.save(key, null, true);
+      throw error;
     });
-
-    this.pendingRequests.set(key, request);
-    return request;
   }
 
   extractCoordinates(payload) {

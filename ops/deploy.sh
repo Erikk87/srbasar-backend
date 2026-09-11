@@ -14,6 +14,10 @@ if [[ ! -d "$SOURCE_DIR" ]]; then
   exit 66
 fi
 
+pushd "$SOURCE_DIR" >/dev/null
+npm run audit:production
+popd >/dev/null
+
 APP_ROOT="${SRBASAR_BACKEND_ROOT:-/var/www/clients/client2/web3/private}"
 CURRENT_LINK="$APP_ROOT/current"
 SHARED_DIR="$APP_ROOT/shared"
@@ -66,6 +70,10 @@ cp -a "$SOURCE_DIR/." "$staging_release/"
 rm -f "$staging_release/.env" "$staging_release/logs"
 ln -s "$SHARED_DIR/.env" "$staging_release/.env"
 ln -s "$SHARED_DIR/logs" "$staging_release/logs"
+if [[ -f "$SHARED_DIR/.env.ballersclub" ]]; then
+  rm -f -- "$staging_release/.env.ballersclub"
+  ln -s "$SHARED_DIR/.env.ballersclub" "$staging_release/.env.ballersclub"
+fi
 
 pushd "$staging_release" >/dev/null
 npm_config_allow_remote=root npm ci --omit=dev --no-audit --no-fund
@@ -73,6 +81,8 @@ node --check src/app.js
 node ops/backupDatabase.js "$SHARED_DIR/backups" "$VERSION"
 node ops/migrate.js
 node ops/backfillLocations.js
+node ops/importBallersclub.js
+node ops/checkBallersCatalog.js
 popd >/dev/null
 
 find "$staging_release" -type d -exec chmod 755 {} +

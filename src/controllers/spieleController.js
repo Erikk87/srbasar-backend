@@ -1,6 +1,8 @@
 const { literal, Op } = require("sequelize");
 const { Spiel, Verein, SrQualifikation } = require("../models");
 const parseJsonValue = require("../utils/parseJsonValue");
+const { ballersClubService } = require('../modules/ballersclub/service');
+const { BasarRepository } = require('../repositories/basarRepository');
 const { isGameAtRisk, getRefereePresence } = require("../utils/refereeStatus");
 const {
   DEFAULT_SORT_FIELD,
@@ -90,12 +92,6 @@ function addAndCondition(whereClause, condition) {
   whereClause[Op.and] = [...(whereClause[Op.and] || []), condition];
 }
 
-function cloneWhereClause(whereClause) {
-  const clonedWhereClause = { ...whereClause };
-  if (whereClause[Op.and]) clonedWhereClause[Op.and] = [...whereClause[Op.and]];
-  return clonedWhereClause;
-}
-
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
@@ -173,6 +169,10 @@ class SpieleController {
         });
       }
       const { pageNumber, pageSize, offset } = getPagination(page, limit);
+      const source = req.query.source || 'all';
+      if (!['all', 'team-sl', 'ballers-club'].includes(source)) {
+        return res.status(400).json({ success: false, error: 'source muss all, team-sl oder ballers-club sein' });
+      }
 
       const dateRange = getDateRange({ date, dateFrom, dateTo });
       const coordinates = getCoordinates(latitude, longitude);
@@ -197,6 +197,13 @@ class SpieleController {
         : requestedSort.sortBy;
       const finalSortOrder = requestedSort.sortOrder;
       const whereClause = {};
+      const ballersState = await ballersClubService.publicState();
+      const catalog = ballersState.available && source !== 'team-sl' ? new BasarRepository({ source }) : null;
+      if (source === 'ballers-club' && !catalog) addAndCondition(whereClause, literal('1 = 0'));
+      if (atRiskOnly === true || atRiskOnly === "true") {
+        whereClause.sr1OffenAngeboten = true;
+        whereClause.sr2OffenAngeboten = true;
+      }
 
       if (dateRange?.invalid) {
         addAndCondition(whereClause, literal("1 = 0"));
@@ -262,29 +269,15 @@ class SpieleController {
         addAndCondition(whereClause, literal(`${distanceExpression} <= ${requestedRadiusKm}`));
       }
 
-      // Der vorbereitete Ausfallfilter bezieht sich auf den aktuellen Kontext,
-      // darf sich für seine eigene Verfügbarkeit aber nicht selbst einschließen.
-      const availableRiskWhere = cloneWhereClause(whereClause);
-      const riskWhere = {
-        ...availableRiskWhere,
-        sr1OffenAngeboten: true,
-        sr2OffenAngeboten: true
-      };
-      if (atRiskOnly === true || atRiskOnly === "true") {
-        whereClause.sr1OffenAngeboten = true;
-        whereClause.sr2OffenAngeboten = true;
-      }
+      const lseWhere = { ...whereClause, srLizenz: "LSE" };
+      const riskWhere = { ...whereClause, sr1OffenAngeboten: true, sr2OffenAngeboten: true };
 
-      const lseWhere = cloneWhereClause(whereClause);
-      delete lseWhere.srLizenz;
-      lseWhere.srLizenz = "LSE";
-
-      const allSpiele = await Spiel.findAll({
+      const allSpiele = catalog ? await catalog.filters() : source === 'ballers-club' ? [] : await Spiel.findAll({
         attributes: getFilterAttributes()
       });
       const [atRiskCount, lseCount] = await Promise.all([
-        Spiel.count({ where: riskWhere }),
-        Spiel.count({ where: lseWhere })
+        catalog ? catalog.count(riskWhere) : Spiel.count({ where: riskWhere }),
+        catalog ? catalog.count(lseWhere) : Spiel.count({ where: lseWhere })
       ]);
       const availableFilters = {
         ...getAvailableFilters(allSpiele),
@@ -303,7 +296,9 @@ class SpieleController {
       };
       if (distanceAttributes) spieleQuery.attributes = distanceAttributes;
 
-      const { count, rows: spiele } = await Spiel.findAndCountAll(spieleQuery);
+      const { count, rows: spiele } = catalog
+        ? await catalog.findAndCountAll({ ...spieleQuery, sortBy: finalSortBy, sortOrder: finalSortOrder, coordinates })
+        : await Spiel.findAndCountAll(spieleQuery);
 
       const totalPages = Math.ceil(count / pageSize);
       const hasNextPage = pageNumber < totalPages;
@@ -311,6 +306,8 @@ class SpieleController {
 
       const spieleMitFormatiertemDatum = spiele.map((spiel) => {
         const spielData = spiel.toJSON();
+        spielData.source = spielData.source || 'team-sl';
+        spielData.id = spielData.id || `team-sl:${spielData.spielplanId}`;
         if (spielData.spieldatum) {
           const datum = new Date(Number.parseInt(spielData.spieldatum, 10));
           spielData.datum = datum.toLocaleString("de-DE", {
@@ -364,15 +361,15 @@ class SpieleController {
             nextPage: hasNextPage ? pageNumber + 1 : null,
             prevPage: hasPrevPage ? pageNumber - 1 : null
           },
-          availableFilters
+          availableFilters,
+          sources: { ballersClub: ballersState }
         }
       });
     } catch (error) {
       console.error("Fehler beim Abrufen der Spiele:", error);
       res.status(500).json({
         success: false,
-        error: "Fehler beim Abrufen der Spiele",
-        details: error.message
+        error: "Fehler beim Abrufen der Spiele"
       });
     }
   }

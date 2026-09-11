@@ -3,8 +3,9 @@ const { sequelize } = require("../src/config/database");
 const { Spiel } = require("../src/models");
 const { GeocodingService, getAddressKey } = require("../src/services/geocodingService");
 const { getCoordinates } = require("../src/utils/coordinates");
+const geocodingRepository = require('../src/repositories/geocodingRepository');
 
-async function backfillLocations({ model = Spiel, geocoder = new GeocodingService() } = {}) {
+async function backfillLocations({ model = Spiel, geocoder = new GeocodingService({ repository: geocodingRepository }) } = {}) {
   const rows = await model.findAll({
     attributes: ["spielplanId", "spielStrasse", "spielPlz", "spielOrt", "spielLatitude", "spielLongitude"],
     raw: true
@@ -69,6 +70,7 @@ async function backfillLocations({ model = Spiel, geocoder = new GeocodingServic
 if (require.main === module) {
   sequelize.authenticate()
     .then(() => backfillLocations())
+    .then(() => require('../src/repositories/hallRepository').seedFromGames())
     .catch(() => {
       console.error("Vorberechnung der Hallenkoordinaten fehlgeschlagen.");
       process.exitCode = 1;
