@@ -49,7 +49,6 @@ jobs:
             --exclude '.env.sample' \
             --exclude 'db/database.sqlite' \
             --exclude 'logs' \
-            --exclude 'src/jobs' \
             --exclude '.DS_Store' \
             -e "ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
             ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ env.DEPLOY_PATH }}/"
