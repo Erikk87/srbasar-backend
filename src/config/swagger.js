@@ -201,7 +201,7 @@ const options = {
             },
             spielfeldName: {
               type: 'string',
-              description: 'Name des Spielfelds'
+              description: 'Name der Halle'
             },
             spielStrasse: {
               type: 'string',
