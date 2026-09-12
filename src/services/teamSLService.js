@@ -152,7 +152,13 @@ class TeamSLService {
           
           // Filtere Matches nach zeitraum basierend auf kickoffDate
           const filteredMatches = this.filterMatchesByZeitraum(matches, zeitraum);
-          allMatches.push(...filteredMatches);
+          // Liga-Metadaten (z.B. Bezirk) am Match mittragen
+          allMatches.push(
+            ...filteredMatches.map((m) => ({
+              ...m,
+              bezirkName: liga.bezirkName || null,
+            }))
+          );
           
           console.log(`  ${matches.length} Matches gefunden, ${filteredMatches.length} nach Zeitraum-Filter`);
         } catch (error) {
@@ -201,6 +207,9 @@ class TeamSLService {
             if (gameDetails) {
               // Konvertiere zu dem Format, das die alte API erwartet
               const convertedGame = this.convertGameDetailsToApiFormat(gameDetails);
+              if (convertedGame?.sp?.liga) {
+                convertedGame.sp.liga.bezirkName = match.bezirkName || null;
+              }
               return { success: true, game: convertedGame, matchId: match.matchId };
             }
             return { success: false, matchId: match.matchId, error: 'Keine Details erhalten' };
@@ -259,7 +268,22 @@ class TeamSLService {
     try {
       const { BasketballBundSDK } = await import("basketball-bund-sdk");
       const sdk = new BasketballBundSDK();
-      
+
+      // Verband-IDs aus Umgebungsvariable lesen (z.B. "3,5"), Standard: all
+      const verbandIdsEnv = process.env.TEAM_SL_VERBAND_IDS;
+      let verbandIds = [];
+
+      if (verbandIdsEnv && typeof verbandIdsEnv === "string") {
+        const parsed = verbandIdsEnv
+          .split(",")
+          .map((id) => parseInt(id.trim(), 10))
+          .filter((id) => !Number.isNaN(id));
+
+        if (parsed.length > 0) {
+          verbandIds = parsed;
+        }
+      }
+
       const response = await sdk.wam.getLigaList({
         akgGeschlechtIds: [],
         altersklasseIds: [],
@@ -268,7 +292,7 @@ class TeamSLService {
         sortBy: 0,
         spielklasseIds: [],
         token: "",
-        verbandIds: [3],
+        verbandIds,
         startAtIndex: index,
       });
 
@@ -814,6 +838,7 @@ class TeamSLService {
               gastMannschaftName:
                 gameData.sp.gastMannschaftLiga?.mannschaftName || "",
               ligaName: ligaName,
+              bezirkName: gameData.sp.liga?.bezirkName || null,
               spielfeldName: gameData.sp.spielfeld?.bezeichnung || "",
               spielStrasse: gameData.sp.spielfeld?.strasse || "",
               spielPlz: gameData.sp.spielfeld?.plz || "",
@@ -844,6 +869,7 @@ class TeamSLService {
               gastMannschaftName:
                 gameData.sp.gastMannschaftLiga?.mannschaftName || "",
               ligaName: ligaName,
+              bezirkName: gameData.sp.liga?.bezirkName || null,
               spielfeldName: gameData.sp.spielfeld?.bezeichnung || "",
               spielStrasse: gameData.sp.spielfeld?.strasse || "",
               spielPlz: gameData.sp.spielfeld?.plz || "",

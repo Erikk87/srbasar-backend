@@ -4,11 +4,17 @@ const { Spiel, Verein, SrQualifikation } = require("../models");
 class SpieleController {
   async getAllSpiele(req, res) {
     try {
+      const enableBezirkFilter =
+        String(process.env.ENABLE_BEZIRK_FILTER || "")
+          .trim()
+          .toLowerCase() === "true";
+
       const {
         page = 1,
         limit = 20,
         spieldatum,
         ligaName,
+        bezirkName,
         spielfeldName,
         srLizenz,
         search,
@@ -60,6 +66,13 @@ class SpieleController {
         ligaName: [
           ...new Set(allSpiele.map((s) => s.ligaName).filter(Boolean)),
         ].sort(),
+        ...(enableBezirkFilter
+          ? {
+              bezirkName: [
+                ...new Set(allSpiele.map((s) => s.bezirkName).filter(Boolean)),
+              ].sort(),
+            }
+          : {}),
         srLizenz: [
           ...new Set(allSpiele.map((s) => s.srLizenz).filter(Boolean)),
         ].sort(),
@@ -93,6 +106,12 @@ class SpieleController {
         };
       }
 
+      if (enableBezirkFilter && bezirkName) {
+        whereClause.bezirkName = {
+          [Op.like]: `%${bezirkName}%`,
+        };
+      }
+
       if (spielfeldName) {
         whereClause.spielfeldName = {
           [Op.like]: `%${spielfeldName}%`,
@@ -114,6 +133,9 @@ class SpieleController {
           { sr2VereinName: { [Op.like]: `%${search}%` } },
           { sr3VereinName: { [Op.like]: `%${search}%` } },
           { ligaName: { [Op.like]: `%${search}%` } },
+          ...(enableBezirkFilter
+            ? [{ bezirkName: { [Op.like]: `%${search}%` } }]
+            : []),
           { spielfeldName: { [Op.like]: `%${search}%` } },
           { spielStrasse: { [Op.like]: `%${search}%` } },
           { spielPlz: { [Op.like]: `%${search}%` } },
@@ -131,6 +153,7 @@ class SpieleController {
       const allowedSortFields = [
         "spieldatum", 
         "ligaName", 
+        ...(enableBezirkFilter ? ["bezirkName"] : []),
         "spielfeldName", 
         "heimMannschaftName", 
         "gastMannschaftName",
@@ -221,6 +244,13 @@ class SpieleController {
         ligaName: [
           ...new Set(spiele.map((s) => s.ligaName).filter(Boolean)),
         ].sort(),
+        ...(enableBezirkFilter
+          ? {
+              bezirkName: [
+                ...new Set(spiele.map((s) => s.bezirkName).filter(Boolean)),
+              ].sort(),
+            }
+          : {}),
         srLizenz: [
           ...new Set(spiele.map((s) => s.srLizenz).filter(Boolean)),
         ].sort(),
@@ -231,7 +261,7 @@ class SpieleController {
 
       // Wenn keine Filter aktiv sind, verwende die ursprünglichen verfügbaren Filter
       // Wenn Filter aktiv sind, verwende die gefilterten Optionen
-      const finalAvailableFilters = (spieldatum || ligaName || spielfeldName || srLizenz || search) 
+      const finalAvailableFilters = (spieldatum || ligaName || (enableBezirkFilter && bezirkName) || spielfeldName || srLizenz || search) 
         ? updatedAvailableFilters 
         : availableFilters;
 
@@ -271,6 +301,9 @@ class SpieleController {
         delete spielData.updatedAt;
         delete spielData.heimVereinId;
         delete spielData.gastVereinId;
+        if (!enableBezirkFilter) {
+          delete spielData.bezirkName;
+        }
         return spielData;
       });
 

@@ -31,6 +31,10 @@ const Spiel = sequelize.define('Spiel', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  bezirkName: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   spielfeldName: {
     type: DataTypes.STRING,
     allowNull: false

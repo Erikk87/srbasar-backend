@@ -26,7 +26,7 @@ const PORT = process.env.PORT || 3000;
 // CORS Konfiguration VOR Helmet
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:8080', 'http://localhost:5173', 'http://localhost:5174', 'https://srbasar.de', 'https://www.srbasar.de'];
+  : ['http://localhost:3000', 'http://localhost:8080', 'http://localhost:5173', 'http://localhost:5174', 'https://nbv-sr-basar.de', 'https://www.nbv-sr-basar.de'];
 
 app.use(cors({
   origin: function (origin, callback) {

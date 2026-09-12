@@ -35,6 +35,11 @@ const router = express.Router();
  *           type: string
  *         description: Liga-Name (Teilstring-Suche)
  *       - in: query
+ *         name: bezirkName
+ *         schema:
+ *           type: string
+ *         description: Bezirk-Name (Teilstring-Suche) (nur aktiv, wenn ENABLE_BEZIRK_FILTER=true)
+ *       - in: query
  *         name: search
  *         schema:
  *           type: string
@@ -48,7 +53,7 @@ const router = express.Router();
  *         name: sortBy
  *         schema:
  *           type: string
- *           enum: [spieldatum, ligaName, spielfeldName, heimMannschaftName, gastMannschaftName, sr1VereinName, sr2VereinName]
+ *           enum: [spieldatum, ligaName, bezirkName, spielfeldName, heimMannschaftName, gastMannschaftName, sr1VereinName, sr2VereinName]
  *           default: spieldatum
  *         description: Feld für die Sortierung
  *       - in: query
@@ -91,6 +96,11 @@ const router = express.Router();
  *                           items:
  *                             type: string
  *                           description: Verfügbare Liga-Namen
+ *                         bezirkName:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                           description: Verfügbare Bezirke (nur aktiv, wenn ENABLE_BEZIRK_FILTER=true)
  *                         spieldatum:
  *                           type: array
  *                           items:
