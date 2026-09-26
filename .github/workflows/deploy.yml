@@ -15,7 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '24'
+  # Wie auf dem Server (nvm default). Upgrade auf 24 (upstream .nvmrc) separat planen.
+  NODE_VERSION: '20'
   # Seit Sept. 2026: nbbv-sr-basar.de (alte Domain nbv-sr-basar.de läuft bis April parallel)
   SITE_DOMAIN: nbbv-sr-basar.de
 
