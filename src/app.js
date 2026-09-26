@@ -12,6 +12,7 @@ const vereinRoutes = require('./routes/vereinRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const { sequelize } = require('./config/database');
 const cronService = require('./services/cronService');
+const ballersClub = require('./modules/ballersclub');
 
 // Swagger
 const swaggerUi = require('swagger-ui-express');
@@ -42,7 +43,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'sentry-trace', 'baggage'],
   preflightContinue: false,
   optionsSuccessStatus: 200
 }));
@@ -62,6 +63,7 @@ app.use('/v1/spiele', spieleRoutes);
 app.use('/v1/users', userRoutes);
 app.use('/v1/vereine', vereinRoutes);
 app.use('/v1/admin', adminRoutes);
+app.use('/v1/ballersclub', ballersClub.router);
 
 // Swagger JSON
 app.get('/swagger.json', (req, res) => {
@@ -96,6 +98,7 @@ app.use((err, req, res, next) => {
 });
 
 let server;
+let isShuttingDown = false;
 
 const startServer = async () => {
   try {
@@ -108,10 +111,20 @@ const startServer = async () => {
       console.log(`Server läuft auf Port ${PORT}`);
       console.log(`PM2 Instance ID: ${process.env.NODE_APP_INSTANCE || 'N/A'}`);
       console.log(`Erlaubte Origins: ${allowedOrigins.join(', ')}`);
-      
-      // Starte alle TeamSL Cron-Jobs
-      cronService.startTeamSLCronJobs();
+
+      if (typeof process.send === 'function') {
+        process.send('ready');
+      }
+
+      // Cron-Jobs nur einmal im PM2-Cluster starten.
+      if (!process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0') {
+        cronService.startTeamSLCronJobs();
+        ballersClub.start();
+      }
     });
+
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 66000;
   } catch (error) {
     console.error('Fehler beim Starten des Servers:', error);
     process.exit(1);
@@ -119,14 +132,21 @@ const startServer = async () => {
 };
 
 const gracefulShutdown = async (signal) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   console.log(`\n${signal} Signal empfangen. Starte Graceful Shutdown...`);
   
   // Stoppe alle Cron-Jobs
   cronService.stopTeamSLCronJobs();
+  await ballersClub.stop();
   
   if (server) {
-    server.close(() => {
-      console.log('HTTP Server geschlossen');
+    await new Promise((resolve) => {
+      server.close(() => {
+        console.log('HTTP Server geschlossen');
+        resolve();
+      });
     });
   }
   

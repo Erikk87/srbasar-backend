@@ -1,9 +1,10 @@
 {
   "name": "srbasar-backend",
-  "version": "1.0.0",
+  "version": "1.0.17",
   "description": "Express.js Backend mit Sequelize und MariaDB",
   "main": "src/app.js",
   "scripts": {
+    "audit:production": "node ops/auditProduction.cjs",
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
     "pm2:start": "pm2 start ecosystem.config.js",
@@ -17,14 +18,16 @@
     "cron:w3": "node src/jobs/cronRunner.js w3",
     "test": "jest",
     "db:migrate": "sequelize-cli db:migrate",
+    "db:migrate:location": "node ops/migrate.js",
+    "db:backfill:location": "node ops/backfillLocations.js",
     "db:seed": "sequelize-cli db:seed:all"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "basketball-bund-sdk": "github:dirkdrutschmann/basketball-bund-sdk",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "handlebars": "^4.7.8",
     "helmet": "^7.1.0",
@@ -32,7 +35,7 @@
     "morgan": "^1.10.0",
     "mysql2": "^3.14.3",
     "node-cron": "^4.2.1",
-    "nodemailer": "^7.0.5",
+    "nodemailer": "^9.1.1",
     "pm2": "^6.0.14",
     "sequelize": "^6.35.0",
     "sqlite3": "^5.1.7",
@@ -43,6 +46,9 @@
     "jest": "^29.7.0",
     "nodemon": "^3.0.1",
     "sequelize-cli": "^6.6.2"
+  },
+  "overrides": {
+    "pm2": { "js-yaml": "^4.3.2" }
   },
   "keywords": [
     "express",

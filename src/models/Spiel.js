@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
 const Spiel = sequelize.define('Spiel', {
+  hallId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
   spielplanId: {
     type: DataTypes.INTEGER,
     primaryKey: true,
@@ -50,6 +51,16 @@ const Spiel = sequelize.define('Spiel', {
   spielOrt: {
     type: DataTypes.STRING,
     allowNull: false
+  },
+  spielLatitude: {
+    type: DataTypes.DOUBLE,
+    allowNull: true,
+    comment: 'Geografische Breite des Spielorts, beim Sync aus der Adresse ermittelt'
+  },
+  spielLongitude: {
+    type: DataTypes.DOUBLE,
+    allowNull: true,
+    comment: 'Geografische Länge des Spielorts, beim Sync aus der Adresse ermittelt'
   },
   sr1OffenAngeboten: {
     type: DataTypes.BOOLEAN,

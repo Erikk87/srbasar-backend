@@ -2,6 +2,13 @@ const Spiel = require('./Spiel');
 const Verein = require('./Verein');
 const SrQualifikation = require('./SrQualifikation');
 const User = require('./User');
+const Hall = require('./Hall');
+const GeocodingCache = require('./GeocodingCache');
+const { BallersTournament, BallersSync, BallersHallMapping } = require('../modules/ballersclub/models');
+
+Spiel.belongsTo(Hall, { foreignKey: 'hallId', as: 'hall', onDelete: 'SET NULL' });
+BallersTournament.belongsTo(Hall, { foreignKey: 'hallId', as: 'hall', onDelete: 'SET NULL' });
+BallersHallMapping.belongsTo(Hall, { foreignKey: 'hallId', as: 'hall', onDelete: 'SET NULL' });
 
 // Beziehungen definieren
 Spiel.belongsTo(Verein, { foreignKey: 'heimVereinId', as: 'heimVerein' });
@@ -24,5 +31,10 @@ module.exports = {
   Spiel,
   Verein,
   SrQualifikation,
-  User
+  User,
+  Hall,
+  GeocodingCache,
+  BallersTournament,
+  BallersSync,
+  BallersHallMapping
 };
