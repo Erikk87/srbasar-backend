@@ -88,7 +88,14 @@ jobs:
               npm ci --omit=dev
               # Additive Migration (neue Tabellen/Spalten), idempotent
               node ops/migrate.js
-              pm2 reload "${{ steps.target.outputs.pm2 }}" --update-env
+              # Beim ersten Deploy existiert der PM2-Prozess noch nicht -> anlegen.
+              # --cwd ist wichtig, damit dotenv die .env dieses Ordners liest.
+              if pm2 describe "${{ steps.target.outputs.pm2 }}" > /dev/null 2>&1; then
+                pm2 reload "${{ steps.target.outputs.pm2 }}" --update-env
+              else
+                pm2 start src/app.js --name "${{ steps.target.outputs.pm2 }}" --cwd "$PWD"
+                pm2 save
+              fi
             '
 
       - name: Health check
