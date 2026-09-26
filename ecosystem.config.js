@@ -1,6 +1,8 @@
 const path = require('path');
 
-const applicationRoot = process.env.SRBASAR_BACKEND_ROOT || path.resolve(__dirname, '../..');
+// ops/deploy.sh setzt beide Pfade explizit; ohne Umgebungsvariablen läuft
+// die App direkt aus diesem Verzeichnis (z. B. bei Forks mit eigenem Deployment).
+const applicationRoot = process.env.SRBASAR_BACKEND_ROOT || __dirname;
 const currentDirectory = process.env.SRBASAR_BACKEND_CURRENT || __dirname;
 
 module.exports = {

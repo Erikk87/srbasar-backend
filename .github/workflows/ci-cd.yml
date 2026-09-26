@@ -46,7 +46,8 @@ jobs:
 
   deploy:
     name: Deploy release tag
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Nur im Original-Repo deployen; Forks nutzen eigene Deploy-Workflows.
+    if: github.repository == 'dirkdrutschmann/srbasar-backend' && startsWith(github.ref, 'refs/tags/v')
     needs: quality
     runs-on: ubuntu-latest
     steps:
