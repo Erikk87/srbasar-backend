@@ -1,8 +1,8 @@
 name: Deploy Backend
 
 # Server-Layout (symmetrisch zu nbv-webservices):
-#   main -> /opt/srbasar/srbasar-backend       PM2 srbasar-backend      https://nbv-sr-basar.de/api/
-#   dev  -> /opt/srbasar/dev/srbasar-backend   PM2 srbasar-backend-dev  https://nbv-sr-basar.de/dev/api/
+#   main -> /opt/srbasar/srbasar-backend       PM2 srbasar-backend      https://nbbv-sr-basar.de/api/
+#   dev  -> /opt/srbasar/dev/srbasar-backend   PM2 srbasar-backend-dev  https://nbbv-sr-basar.de/dev/api/
 # Die .env liegt jeweils nur auf dem Server und wird nie überschrieben.
 
 on:
@@ -16,6 +16,8 @@ concurrency:
 
 env:
   NODE_VERSION: '24'
+  # Seit Sept. 2026: nbbv-sr-basar.de (alte Domain nbv-sr-basar.de läuft bis April parallel)
+  SITE_DOMAIN: nbbv-sr-basar.de
 
 jobs:
   deploy:
@@ -31,11 +33,11 @@ jobs:
           if [ "$GITHUB_REF_NAME" = "main" ]; then
             echo "path=/opt/srbasar/srbasar-backend" >> "$GITHUB_OUTPUT"
             echo "pm2=srbasar-backend" >> "$GITHUB_OUTPUT"
-            echo "health=https://nbv-sr-basar.de/api/v1/health" >> "$GITHUB_OUTPUT"
+            echo "health=https://${SITE_DOMAIN}/api/v1/health" >> "$GITHUB_OUTPUT"
           elif [ "$GITHUB_REF_NAME" = "dev" ]; then
             echo "path=/opt/srbasar/dev/srbasar-backend" >> "$GITHUB_OUTPUT"
             echo "pm2=srbasar-backend-dev" >> "$GITHUB_OUTPUT"
-            echo "health=https://nbv-sr-basar.de/dev/api/v1/health" >> "$GITHUB_OUTPUT"
+            echo "health=https://${SITE_DOMAIN}/dev/api/v1/health" >> "$GITHUB_OUTPUT"
           else
             echo "::error::Kein Deploy-Ziel für Branch $GITHUB_REF_NAME"; exit 1
           fi
