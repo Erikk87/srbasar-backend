@@ -38,7 +38,7 @@ npm start
 Die API-Dokumentation ist über Swagger UI verfügbar:
 
 - **Entwicklung**: [http://localhost:3000/api-docs/](http://localhost:3000/api-docs/)
-- **Produktion**: [https://nbv-sr-basar.de/api/api-docs/](https://nbv-sr-basar.de/api/api-docs/)
+- **Produktion**: [https://nbbv-sr-basar.de/api/api-docs/](https://nbbv-sr-basar.de/api/api-docs/)
 
 ### Verfügbare Endpunkte
 
