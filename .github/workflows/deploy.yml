@@ -1,24 +1,44 @@
 name: Deploy Backend
 
+# Server-Layout (symmetrisch zu nbv-webservices):
+#   main -> /opt/srbasar/srbasar-backend       PM2 srbasar-backend      https://nbv-sr-basar.de/api/
+#   dev  -> /opt/srbasar/dev/srbasar-backend   PM2 srbasar-backend-dev  https://nbv-sr-basar.de/dev/api/
+# Die .env liegt jeweils nur auf dem Server und wird nie überschrieben.
+
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 concurrency:
-  group: srbasar-backend-deploy
+  group: srbasar-backend-deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
-  DEPLOY_PATH: /opt/srbasar/srbasar-backend
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
 
 jobs:
   deploy:
+    name: ${{ github.ref_name == 'main' && 'Prod' || 'Dev' }}-Deployment
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Zielumgebung bestimmen
+        id: target
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "path=/opt/srbasar/srbasar-backend" >> "$GITHUB_OUTPUT"
+            echo "pm2=srbasar-backend" >> "$GITHUB_OUTPUT"
+            echo "health=https://nbv-sr-basar.de/api/v1/health" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF_NAME" = "dev" ]; then
+            echo "path=/opt/srbasar/dev/srbasar-backend" >> "$GITHUB_OUTPUT"
+            echo "pm2=srbasar-backend-dev" >> "$GITHUB_OUTPUT"
+            echo "health=https://nbv-sr-basar.de/dev/api/v1/health" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Kein Deploy-Ziel für Branch $GITHUB_REF_NAME"; exit 1
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -26,8 +46,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install dependencies (sanity check)
+      - name: Install dependencies
         run: npm ci
+
+      - name: Run tests
+        run: npm test -- --runInBand
 
       - name: Configure SSH
         env:
@@ -47,25 +70,28 @@ jobs:
             --exclude 'node_modules' \
             --exclude '.env' \
             --exclude '.env.sample' \
+            --exclude '.env.ballersclub' \
             --exclude 'db/database.sqlite' \
             --exclude 'logs' \
             --exclude '.DS_Store' \
             -e "ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ env.DEPLOY_PATH }}/"
+            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ steps.target.outputs.path }}/"
 
-      - name: Install production deps & reload on server
+      - name: Install production deps, migrate & reload on server
         run: |
           ssh -i "$HOME/.ssh/id_ed25519" -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" '
               set -euo pipefail
               export NVM_DIR="$HOME/.nvm"
               [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-              cd "${{ env.DEPLOY_PATH }}"
+              cd "${{ steps.target.outputs.path }}"
               npm ci --omit=dev
-              pm2 reload srbasar-backend --update-env
+              # Additive Migration (neue Tabellen/Spalten), idempotent
+              node ops/migrate.js
+              pm2 reload "${{ steps.target.outputs.pm2 }}" --update-env
             '
 
       - name: Health check
         run: |
-          sleep 3
-          curl --fail --silent --show-error https://nbv-sr-basar.de/api/v1/health
+          sleep 5
+          curl --fail --silent --show-error "${{ steps.target.outputs.health }}"
