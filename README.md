@@ -1,6 +1,6 @@
 # Srbasar Backend
 
-Express.js Backend mit Sequelize und SQLite für das Srbasar-System zur Verwaltung von Basketball-Spielen und Schiedsrichtern.
+Express.js Backend mit Sequelize und MySQL/MariaDB für das Srbasar-System zur Verwaltung von Basketball-Spielen und Schiedsrichtern.
 
 Das eigenständige [Ballers-Club-Modul](docs/ballersclub.md) ergänzt den Basar um
 offene Turniere aus Google Sheets, eine separate ENV und dauerhafte Hallen-Mappings.
@@ -146,7 +146,7 @@ gespeichert.
 
 ## 🗄️ Datenbank
 
-Das System verwendet SQLite als Datenbank mit Sequelize als ORM.
+Das System verwendet MySQL/MariaDB als Datenbank mit Sequelize als ORM.
 
 ### Modelle
 
