@@ -8,6 +8,8 @@ Gemeinsame Konventionen: CLAUDE.md im Repo Erikk87/nbbv-webservices.
   ausdrückliche Anweisung – `main` geht sofort live.
 - Upstream-Dateien nur wenn nötig ändern, damit Merges mit `upstream` einfach bleiben.
 - `.env` nur auf dem Server. `UNIX_SENTMAIL` nicht „korrigieren“.
+- Apps laufen als Benutzer `deploy` (nicht root) mit eigenem nvm/PM2 (`su - deploy`, `pm2 ls`), Node-Version aus `.nvmrc` (24),
+  Deploy über `ops/server-deploy.sh`.
 - Auf demselben Server läuft die unabhängige nbbv-spielplan-api (eigene PM2-Prozesse, eigene DBs). Sie darf
   nicht vom SR-Basar abhängen und umgekehrt. Die nginx-Config `sites-available/srbasar` enthält beide.
 - Vor dem Commit `npm test`.
