@@ -1,3 +1,25 @@
+# Spielebörse (NBBV) – Backend
+
+> **NBBV-Betrieb.** Dieses Repo ist ein Fork von [dirkdrutschmann/srbasar-backend](https://github.com/dirkdrutschmann/srbasar-backend)
+> (Remote `upstream`). Es liefert die API der **Spielebörse** (Oberfläche: https://nbbv-basketball.de/spieleboerse/,
+> Repo [Erikk87/srbasar-frontend](https://github.com/Erikk87/srbasar-frontend)). Gemeinsame Konventionen der
+> NBBV-Webservices: [Erikk87/nbbv-webservices](https://github.com/Erikk87/nbbv-webservices) (CLAUDE.md).
+>
+> - **Server:** eigener Ubuntu-Server, nginx, MariaDB, PM2, Node 20 (nvm). Der Server liefert nur die API aus;
+>   alle anderen Pfade leiten auf die Oberfläche bei nbbv-basketball.de weiter.
+>   - Prod: `https://nbbv-sr-basar.de/api/`, `/opt/srbasar/srbasar-backend`, PM2 `srbasar-backend`, Port 3000, DB `srbasar`
+>   - Dev: `https://nbbv-sr-basar.de/dev/api/`, `/opt/srbasar/dev/srbasar-backend`, PM2 `srbasar-backend-dev`, Port 3001, DB `srbasar_dev`
+>   - nginx: `/etc/nginx/sites-available/srbasar` (dort steht auch die Weiterleitung der Spielplan-API)
+> - **Deploy:** `.github/workflows/deploy.yml`, Branch `dev` → Dev, `main` → Prod. Auf `main` nur per PR von `dev`.
+>   `ci-cd.yml` ist der Workflow des Originals und läuft im Fork nicht.
+> - **`.env`** liegt nur auf dem Server. Der Tippfehler `UNIX_SENTMAIL` ist Absicht (sonst sendmail statt SMTP).
+>   `TEAM_SL_VERBAND_ID=7` (NBBV) setzen, sonst lädt der Sync Berlin.
+> - Offene Punkte: [OFFENE-PUNKTE.md in nbbv-webservices](https://github.com/Erikk87/nbbv-webservices/blob/main/OFFENE-PUNKTE.md).
+>
+> Ab hier folgt die README des Originalprojekts. Server (ISPConfig), Releases und Deploy darin gelten nicht für den NBBV-Betrieb.
+
+---
+
 # Srbasar Backend
 
 Express.js Backend mit Sequelize und MySQL/MariaDB für das Srbasar-System zur Verwaltung von Basketball-Spielen und Schiedsrichtern.
