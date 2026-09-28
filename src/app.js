@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
+const { requestLog } = require('./utils/requestLog');
 const { User } = require('./models');
 require('dotenv').config();
 
@@ -54,7 +54,7 @@ app.use(helmet({
   contentSecurityPolicy: false // Deaktiviere CSP für API
 }));
 
-app.use(morgan('combined'));
+app.use(requestLog());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
