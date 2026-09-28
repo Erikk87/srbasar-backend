@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 # Node-Version: .nvmrc (Tests hier und auf dem Server, siehe ops/server-deploy.sh).
-# Server-Login: dev als Benutzer deploy, main vorerst noch mit secrets.DEPLOY_USER.
+# Server-Login: Benutzer deploy (eigenes nvm und PM2, Dienst pm2-deploy), nicht root.
 env:
   # Seit Sept. 2026: nbbv-sr-basar.de (alte Domain nbv-sr-basar.de läuft bis April parallel)
   SITE_DOMAIN: nbbv-sr-basar.de
@@ -78,12 +78,12 @@ jobs:
             --exclude 'logs' \
             --exclude '.DS_Store' \
             -e "ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
-            ./ "${{ github.ref_name == 'main' && secrets.DEPLOY_USER || 'deploy' }}@${{ secrets.DEPLOY_HOST }}:${{ steps.target.outputs.path }}/"
+            ./ "deploy@${{ secrets.DEPLOY_HOST }}:${{ steps.target.outputs.path }}/"
 
       - name: Install production deps, migrate & reload on server
         run: |
           ssh -i "$HOME/.ssh/id_ed25519" -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            "${{ github.ref_name == 'main' && secrets.DEPLOY_USER || 'deploy' }}@${{ secrets.DEPLOY_HOST }}" '
+            "deploy@${{ secrets.DEPLOY_HOST }}" '
               set -euo pipefail
               cd "${{ steps.target.outputs.path }}"
               # --cwd setzt das Skript, damit dotenv die .env dieses Ordners liest
