@@ -5,11 +5,12 @@
 > Repo [Erikk87/srbasar-frontend](https://github.com/Erikk87/srbasar-frontend)). Gemeinsame Konventionen der
 > NBBV-Webservices: [Erikk87/nbbv-webservices](https://github.com/Erikk87/nbbv-webservices) (CLAUDE.md).
 >
-> - **Server:** eigener Ubuntu-Server, nginx, MariaDB, PM2, Node 20 (nvm). Der Server liefert nur die API aus;
+> - **Server:** eigener Ubuntu-Server, nginx, MariaDB, PM2, Node 24 (nvm, Version aus `.nvmrc`). Der Server liefert nur die API aus;
 >   alle anderen Pfade leiten auf die Oberfläche bei nbbv-basketball.de weiter.
 >   - Prod: `https://nbbv-sr-basar.de/api/`, `/opt/srbasar/srbasar-backend`, PM2 `srbasar-backend`, Port 3000, DB `srbasar`
 >   - Dev: `https://nbbv-sr-basar.de/dev/api/`, `/opt/srbasar/dev/srbasar-backend`, PM2 `srbasar-backend-dev`, Port 3001, DB `srbasar_dev`
 >   - nginx: `/etc/nginx/sites-available/srbasar` (dort steht auch die Weiterleitung der Spielplan-API)
+>   - Alle Dienste laufen als Benutzer `deploy` (nicht root): eigenes nvm (Node 24 Standard, 20 als Reserve), eigenes PM2 mit Autostart über `pm2-deploy.service` und Log-Rotation. Die GitHub-Actions melden sich als `deploy` an; die Node-Version je App kommt aus der `.nvmrc`, `ops/server-deploy.sh` legt den PM2-Prozess bei einem Versionswechsel neu an. PM2 ansehen: `su - deploy`, dann `pm2 ls`.
 > - **Deploy:** `.github/workflows/deploy.yml`, Branch `dev` → Dev, `main` → Prod. Auf `main` nur per PR von `dev`.
 >   `ci-cd.yml` ist der Workflow des Originals und läuft im Fork nicht.
 > - **`.env`** liegt nur auf dem Server. Der Tippfehler `UNIX_SENTMAIL` ist Absicht (sonst sendmail statt SMTP).
