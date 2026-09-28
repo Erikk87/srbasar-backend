@@ -14,9 +14,9 @@ concurrency:
   group: srbasar-backend-deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
+# Node-Version: .nvmrc (Tests hier und auf dem Server, siehe ops/server-deploy.sh).
+# Server-Login: Benutzer deploy (eigenes nvm und PM2, Dienst pm2-deploy), nicht root.
 env:
-  # Wie auf dem Server (nvm default). Upgrade auf 24 (upstream .nvmrc) separat planen.
-  NODE_VERSION: '20'
   # Seit Sept. 2026: nbbv-sr-basar.de (alte Domain nbv-sr-basar.de läuft bis April parallel)
   SITE_DOMAIN: nbbv-sr-basar.de
 
@@ -46,7 +46,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -78,27 +78,16 @@ jobs:
             --exclude 'logs' \
             --exclude '.DS_Store' \
             -e "ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ steps.target.outputs.path }}/"
+            ./ "deploy@${{ secrets.DEPLOY_HOST }}:${{ steps.target.outputs.path }}/"
 
       - name: Install production deps, migrate & reload on server
         run: |
           ssh -i "$HOME/.ssh/id_ed25519" -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" '
+            "deploy@${{ secrets.DEPLOY_HOST }}" '
               set -euo pipefail
-              export NVM_DIR="$HOME/.nvm"
-              [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
               cd "${{ steps.target.outputs.path }}"
-              npm ci --omit=dev
-              # Additive Migration (neue Tabellen/Spalten), idempotent
-              node ops/migrate.js
-              # Beim ersten Deploy existiert der PM2-Prozess noch nicht -> anlegen.
-              # --cwd ist wichtig, damit dotenv die .env dieses Ordners liest.
-              if pm2 describe "${{ steps.target.outputs.pm2 }}" > /dev/null 2>&1; then
-                pm2 reload "${{ steps.target.outputs.pm2 }}" --update-env
-              else
-                pm2 start src/app.js --name "${{ steps.target.outputs.pm2 }}" --cwd "$PWD"
-                pm2 save
-              fi
+              # --cwd setzt das Skript, damit dotenv die .env dieses Ordners liest
+              bash ops/server-deploy.sh "${{ steps.target.outputs.pm2 }}" src/app.js ops/migrate.js
             '
 
       - name: Health check
