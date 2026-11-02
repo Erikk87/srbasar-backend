@@ -382,6 +382,10 @@ class TeamSLService {
             if (convertedGame.sp?.liga) {
               convertedGame.sp.liga.bezirkName = match.bezirkName || null;
             }
+            // Rückzug oder Absage: TeamSL liefert das Spiel weiter, teils mit offenem SR-Platz.
+            if (match.verzicht || match.abgesagt) {
+              convertedGame.entfallen = true;
+            }
 
             return { success: true, game: convertedGame, matchId: match.matchId };
           } catch (error) {
@@ -640,6 +644,7 @@ class TeamSLService {
 
       // Konvertiere zu dem Format, das die alte API verwendet
       return {
+        entfallen: Boolean(game1.verzicht || game1.abgesagt),
         sp: {
           spielplanId: game1.spielplanId,
           spieldatum: game1.spieldatum,
@@ -931,6 +936,8 @@ class TeamSLService {
   }
 
   isGameOffered(gameData) {
+    if (gameData?.entfallen) return false;
+
     return [
       [gameData?.sr1OffenAngeboten, gameData?.sr1?.lizenzNr],
       [gameData?.sr2OffenAngeboten, gameData?.sr2?.lizenzNr],
@@ -1157,6 +1164,7 @@ class TeamSLService {
       let savedSrQualifikationen = 0;
       let errors = [];
       let skippedReasons = {
+        entfallen: 0,
         notOffered: 0,
         bothVereinsHideLink: 0,
         heimVereinNotFound: 0,
@@ -1167,6 +1175,23 @@ class TeamSLService {
 
       for (const gameData of gamesData) {
         try {
+          // Entfallene Spiele (Verzicht, Absage) sind nicht übernehmbar - aus DB entfernen.
+          // Nimmt TeamSL das zurück, legt der nächste Sync das Spiel wieder an.
+          if (gameData.entfallen) {
+            await Spiel.destroy({
+              where: {
+                spielplanId: {
+                  [Op.eq]: gameData.sp.spielplanId,
+                },
+              },
+              force: true,
+              transaction,
+            });
+            skippedReasons.entfallen++;
+            skippedGames++;
+            continue;
+          }
+
           // Prüfe, ob das Spiel offen angeboten wird
           // Wenn offenAngeboten true ist, aber lizenzNr gesetzt ist, dann ist es nicht mehr offen angeboten
           const sr1OffenAngeboten = gameData.sr1OffenAngeboten && !gameData.sr1?.lizenzNr;
@@ -1456,6 +1481,7 @@ class TeamSLService {
       
       // Detaillierte Übersicht der übersprungenen Spiele
       console.log(`\n📊 Übersprungene Spiele - Details:`);
+      console.log(`- Entfallen (Verzicht/Absage): ${skippedReasons.entfallen}`);
       console.log(`- Nicht offen angeboten: ${skippedReasons.notOffered}`);
       console.log(`- Beide Vereine hideLink: ${skippedReasons.bothVereinsHideLink}`);
       console.log(`- Heimverein nicht gefunden: ${skippedReasons.heimVereinNotFound}`);
