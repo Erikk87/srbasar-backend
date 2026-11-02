@@ -35,8 +35,7 @@ Damit entfallen `pm2`, `@pm2/agent`, `proxy-agent`, `pac-proxy-agent`, `get-uri`
 - `ops/server-deploy.sh` nimmt das global installierte PM2 (`command -v pm2`), bevor es `npm ci --omit=dev` ausführt.
 - `test/deployWatch.test.js` braucht das Paket weiterhin, in der CI wird es mit installiert.
 
-Die Meldungen gelten weiter für das globale PM2 auf dem Server (zuletzt bekannt 6.0.14), nur prüft das Audit es nicht mehr.
-Betroffen ist vor allem die Anbindung an pm2.io über `@pm2/agent`. Das Update steht im Plan unten.
+Auf dem Server und im Projekt läuft seit dem 02.11.2026 PM2 7.1.1. Das Audit prüft das globale PM2 nicht, Updates also von Hand nachziehen.
 
 ## Verbleibende Treffer
 
@@ -50,10 +49,7 @@ Betroffen ist vor allem die Anbindung an pm2.io über `@pm2/agent`. Das Update s
 
 ## Plan für die Major-Updates
 
-1. **PM2 7 auf dem Server, eigenes Wartungsfenster.** Betrifft auch die Spielplan-API, weil alle Apps denselben Daemon nutzen.
-   Changelog lesen, global aktualisieren, `pm2 update`, Autostart und `pm2-logrotate` prüfen. Danach die Entwicklungsabhängigkeit
-   nachziehen und das `js-yaml`-Override in der `package.json` prüfen.
-2. **`exceljs`, `sequelize`, `swagger-jsdoc`: kein Update vorhanden.** Bei jedem neuen Release erneut prüfen. Falls die Meldungen
+1. **`exceljs`, `sequelize`, `swagger-jsdoc`: kein Update vorhanden.** Bei jedem neuen Release erneut prüfen. Falls die Meldungen
    stören, wäre ein Override für `uuid` möglich, das aber eigene Tests braucht und derzeit keinen Nutzen hat.
 
 ## Prüfung
@@ -61,4 +57,3 @@ Betroffen ist vor allem die Anbindung an pm2.io über `@pm2/agent`. Das Update s
 - Die Prüfungen liefen unter Node 26 (lokal), die CI und der Deploy testen unter Node 24.
 - Simulierte Produktionsinstallation (`npm ci --omit=dev`): kein `node_modules/pm2`, außer `pm2` selbst sind alle
   in `src` und `ops` per `require` geladenen Pakete auflösbar, `src/app.js` besteht `node --check`.
-- Nicht auf dem Server geprüft: die globale PM2-Installation. Der nächste Deploy nach Dev zeigt das.
