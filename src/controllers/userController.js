@@ -84,7 +84,7 @@ class UserController {
     try {
       const { email } = req.body;
 
-      if (!email) {
+      if (!email || typeof email !== 'string') {
         return res.status(400).json({
           success: false,
           error: 'E-Mail-Adresse ist erforderlich'
@@ -117,7 +117,7 @@ class UserController {
 
       // E-Mail mit Passwort-Reset-Link senden
       try {
-        await mailerService.sendPasswordResetEmail(email, user.name, resetToken);
+        await mailerService.sendPasswordResetEmail(user.email, user.name, resetToken);
         
         res.json({
           success: true,
@@ -151,7 +151,7 @@ class UserController {
     try {
       const { token } = req.body;
 
-      if (!token) {
+      if (!token || typeof token !== 'string') {
         return res.status(400).json({
           success: false,
           error: 'Token ist erforderlich'
@@ -198,7 +198,7 @@ class UserController {
     try {
       const { resetToken, newPassword } = req.body;
 
-      if (!resetToken || !newPassword) {
+      if (!resetToken || typeof resetToken !== 'string' || !newPassword) {
         return res.status(400).json({
           success: false,
           error: 'Reset-Token und neues Passwort sind erforderlich'
