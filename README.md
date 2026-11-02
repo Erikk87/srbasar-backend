@@ -12,7 +12,8 @@
 >   - nginx: `/etc/nginx/sites-available/srbasar` (dort steht auch die Weiterleitung der Spielplan-API)
 >   - Alle Dienste laufen als Benutzer `deploy` (nicht root): eigenes nvm (Node 24 Standard, 20 als Reserve), eigenes PM2 mit Autostart über `pm2-deploy.service` und Log-Rotation. Die GitHub-Actions melden sich als `deploy` an; die Node-Version je App kommt aus der `.nvmrc`, `ops/server-deploy.sh` legt den PM2-Prozess bei einem Versionswechsel neu an. PM2 ansehen: `su - deploy`, dann `pm2 ls`.
 > - **Deploy:** `.github/workflows/deploy.yml`, Branch `dev` → Dev, `main` → Prod. Auf `main` nur per PR von `dev`.
->   `ci-cd.yml` ist der Workflow des Originals und läuft im Fork nicht.
+>   `ci-cd.yml` stammt aus dem Original. Im Fork läuft davon nur der Job „Test backend“ (Audit und Tests, bei Pull Requests und Pushes auf `main`); er blockiert `deploy.yml` nicht. Der Deploy-Job läuft nur im Original-Repo.
+>   PM2 ist auf dem Server global installiert und im Projekt nur Entwicklungsabhängigkeit. Stand des Audits: [docs/dependency-audit.md](docs/dependency-audit.md).
 > - **`.env`** liegt nur auf dem Server. Der Tippfehler `UNIX_SENTMAIL` ist Absicht (sonst sendmail statt SMTP).
 >   `TEAM_SL_VERBAND_ID=7` (NBBV) setzen, sonst lädt der Sync Berlin.
 > - Offene Punkte: [OFFENE-PUNKTE.md in nbbv-webservices](https://github.com/Erikk87/nbbv-webservices/blob/main/OFFENE-PUNKTE.md).
